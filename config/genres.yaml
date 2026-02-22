@@ -1,0 +1,449 @@
+# WebReaper Genre Configuration Presets
+# Specialized scraping configurations for different information types
+
+---
+
+## 🔒 CYBERSECURITY GENRE
+
+### Sources (25 feeds)
+- Project Zero
+- Krebs on Security
+- Trail of Bits
+- SpecterOps
+- PortSwigger Research
+- Orange Tsai
+- James Kettle
+- LiveOverflow
+- Gynvael Coldwind
+- Security Research Blogs
+
+### Scraping Rules
+```yaml
+genre: cybersecurity
+keywords:
+  - CVE
+  - vulnerability
+  - exploit
+  - zero-day
+  - RCE
+  - XSS
+  - SQL injection
+  - bypass
+  - proof of concept
+  - PoC
+  - disclosure
+selectors:
+  title: "h1, .post-title, .entry-title"
+  date: "time, .published, .date"
+  content: ".post-content, .entry-content, article"
+  author: ".author, .byline"
+extract_metadata:
+  cve_ids: true
+  cvss_scores: true
+  affected_products: true
+  poc_links: true
+```
+
+---
+
+## 🤖 AI/ML GENRE
+
+### Sources (20 feeds)
+- OpenAI Research
+- DeepMind Blog
+- Anthropic Research
+- Google AI Blog
+- Distill.pub
+- Lil'Log
+- Papers with Code
+- arXiv AI/ML
+
+### Scraping Rules
+```yaml
+genre: ai_ml
+keywords:
+  - GPT
+  - LLM
+  - transformer
+  - neural network
+  - benchmark
+  - SOTA
+  - fine-tuning
+  - training
+  - inference
+  - parameter
+  - architecture
+selectors:
+  title: "h1, .paper-title, .post-title"
+  date: ".published-date, time"
+  abstract: ".abstract, .summary"
+  code_link: "a[href*='github'], a[href*='gitlab']"
+extract_metadata:
+  model_names: true
+  parameter_counts: true
+  benchmark_scores: true
+  paper_links: true
+```
+
+---
+
+## 🔧 HARDWARE MAKING GENRE
+
+### Sources (12 feeds)
+- Hackaday
+- Dangerous Prototypes
+- RTL-SDR Blog
+- PCBWay Community
+- Electronics-Lab
+- SparkFun
+- Adafruit
+
+### Scraping Rules
+```yaml
+genre: hardware
+keywords:
+  - PCB
+  - schematic
+  - circuit
+  - microcontroller
+  - FPGA
+  - soldering
+  - oscilloscope
+  - 3D print
+  - laser cut
+selectors:
+  title: "h1, .project-title"
+  images: "img[src*='project'], .gallery img"
+  instructions: ".steps, .instructions"
+  components: ".bom, .parts-list"
+extract_metadata:
+  component_lists: true
+  schematic_links: true
+  code_links: true
+```
+
+---
+
+## 🎮 REVERSE ENGINEERING GENRE
+
+### Sources (10 feeds)
+- LiveOverflow
+- Gynvael Coldwind
+- OALabs
+- Malware Unicorn
+- Reverse Engineering Reddit
+
+### Scraping Rules
+```yaml
+genre: reverse_eng
+keywords:
+  - disassembly
+  - decompilation
+  - binary
+  - debugger
+  - IDA Pro
+  - Ghidra
+  - x64dbg
+  - unpack
+  - obfuscation
+  - shellcode
+selectors:
+  title: "h1, .writeup-title"
+  code_blocks: "pre code, .language-asm, .language-c"
+  screenshots: "img[src*='screenshot'], .figure img"
+  tools_used: ".tools, .software-used"
+extract_metadata:
+  tool_mentions: true
+  binary_types: true
+  difficulty_level: true
+```
+
+---
+
+## 🚀 STARTUP/BUSINESS GENRE
+
+### Sources (10 feeds)
+- TechCrunch
+- VentureBeat
+- AngelList Blog
+- Y Combinator
+- First Round Review
+
+### Scraping Rules
+```yaml
+genre: startups
+keywords:
+  - funding
+  - Series A/B/C
+  - IPO
+  - acquisition
+  - valuation
+  - unicorn
+  - pitch deck
+  - growth
+  - revenue
+  - MRR
+  - ARR
+selectors:
+  title: "h1, .article-title"
+  funding_amount: ".funding, .raise-amount"
+  investors: ".investors, .backers"
+  company: ".company-name"
+extract_metadata:
+  funding_amounts: true
+  company_names: true
+  investor_names: true
+  valuations: true
+```
+
+---
+
+## 🔬 SCIENCE RESEARCH GENRE
+
+### Sources (15 feeds)
+- Nature News
+- Science Magazine
+- Ars Technica Science
+- Phys.org
+- Space.com
+
+### Scraping Rules
+```yaml
+genre: science
+keywords:
+  - discovery
+  - breakthrough
+  - experiment
+  - study
+  - research
+  - quantum
+  - particle
+  - DNA
+  - genome
+  - telescope
+selectors:
+  title: "h1, .headline"
+  abstract: ".abstract, .summary"
+  doi: ".doi, a[href*='doi.org']"
+  journal: ".journal-name"
+extract_metadata:
+  doi_numbers: true
+  citation_counts: true
+  research_institutions: true
+  funding_sources: true
+```
+
+---
+
+## 🏛️ GOVERNMENT/FOIA GENRE
+
+### Sources (6 feeds)
+- MuckRock
+- FOIA Mapper
+- Government Attic
+- National Security Archive
+
+### Scraping Rules
+```yaml
+genre: government
+keywords:
+  - FOIA
+  - declassified
+  - document release
+  - lawsuit
+  - transparency
+  - redacted
+  - classified
+  - secret
+  - surveillance
+  - FISA
+selectors:
+  title: "h1, .request-title"
+  agency: ".agency, .department"
+  documents: ".document-list, .files"
+  status: ".status, .request-status"
+extract_metadata:
+  agency_names: true
+  document_counts: true
+  page_counts: true
+  release_dates: true
+  classification_levels: true
+```
+
+---
+
+## 🎲 NICHE/ESOTERIC GENRE
+
+### Sources (8 feeds)
+- Esolangs Wiki
+- Vintage Computing Federation
+- Retro Computing Subreddit
+- Demoscene Archives
+
+### Scraping Rules
+```yaml
+genre: niche
+keywords:
+  - esoteric
+  - vintage
+  - retro
+  - obsolete
+  - demoscene
+  - 8-bit
+  - assembler
+  - memory-constrained
+  - demake
+  - homebrew
+selectors:
+  title: "h1, .page-title"
+  description: ".description, .overview"
+  code: ".code-example, pre"
+  links: ".resources, .external-links"
+extract_metadata:
+  language_names: true
+  year_created: true
+  paradigm: true
+  rarity_score: true
+```
+
+---
+
+## MULTI-GENRE DASHBOARD CONFIG
+
+```yaml
+dashboard:
+  layout: grid
+  genres_per_row: 4
+  animation_fps: 10
+  refresh_interval: 5
+  
+  genre_cards:
+    show_icon: true
+    show_count: true
+    show_pulse: true
+    animate_on_update: true
+  
+  live_monitor:
+    show_url: true
+    show_status: true
+    show_progress: true
+    history_size: 10
+  
+  hot_topics:
+    max_items: 5
+    update_interval: 60
+    show_time_ago: true
+  
+  stats_panel:
+    metrics:
+      - pages_scraped
+      - links_found
+      - total_size
+      - requests_per_sec
+      - uptime
+```
+
+---
+
+## SITE-SPECIFIC CONFIGURATIONS
+
+### Anthropic News (No RSS)
+```yaml
+name: "Anthropic News"
+url: "https://www.anthropic.com/news"
+scraper_type: blogwatcher_bridge
+genre: ai_ml
+article_selector: "[class*='NewsCard']"
+title_selector: "h2, h3"
+date_selector: "time"
+content_selector: "[class*='description']"
+```
+
+### OpenAI News (No RSS)
+```yaml
+name: "OpenAI News"
+url: "https://openai.com/news"
+scraper_type: blogwatcher_bridge
+genre: ai_ml
+article_selector: "[class*='news-item']"
+title_selector: "h3"
+date_selector: "[class*='date']"
+content_selector: "[class*='excerpt']"
+```
+
+### DeepMind Blog (No RSS)
+```yaml
+name: "DeepMind Blog"
+url: "https://deepmind.google/blog/"
+scraper_type: blogwatcher_bridge
+genre: ai_ml
+article_selector: "article"
+title_selector: "h2"
+date_selector: "time"
+content_selector: ".blog-post-content"
+```
+
+### Martin Fowler (No RSS)
+```yaml
+name: "Martin Fowler"
+url: "https://martinfowler.com/"
+scraper_type: blogwatcher_bridge
+genre: web_dev
+article_selector: "[class*='blurb']"
+title_selector: "a[href*='articles']"
+date_selector: ".date"
+content_selector: ".blurb-text"
+```
+
+---
+
+## AUTOMATION WORKFLOW
+
+```bash
+#!/bin/bash
+# WebReaper Automated Genre Scraping
+
+GENRES=("cybersecurity" "ai_ml" "hardware" "reverse_eng" "startups" "science")
+OUTPUT_BASE="/var/lib/blogwatcher/feeds"
+
+for genre in "${GENRES[@]}"; do
+    echo "Processing genre: $genre"
+    
+    # Load sites for this genre
+    sites=$(cat "config/genres/${genre}_sites.txt")
+    
+    for site in $sites; do
+        name=$(echo "$site" | awk -F/ '{print $3}')
+        
+        # Scrape and generate feed
+        python3 tools/webreaper/webreaper.py integration "$site" \
+            --name "$name" \
+            --output "$OUTPUT_BASE/$genre" \
+            --config "config/genres/${genre}.yaml"
+        
+        # Import to blogwatcher
+        blogwatcher add "$name" "$OUTPUT_BASE/$genre/${name}_feed.xml"
+    done
+done
+```
+
+---
+
+## SCHEDULING
+
+```yaml
+# crontab -e
+
+# Every 30 minutes - active scraping
+*/30 * * * * /usr/local/bin/webreaper-rotate
+
+# Daily full scan - 2 AM
+0 2 * * * /usr/local/bin/webreaper-batch --all-genres
+
+# Weekly deep scan - Sunday 3 AM
+0 3 * * 0 /usr/local/bin/webreaper-deep --stealth --tor
+```
+
+---
+
+*Genre configurations complete. Ready for deployment.*

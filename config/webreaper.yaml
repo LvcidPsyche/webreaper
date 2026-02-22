@@ -1,0 +1,76 @@
+# WebReaper Default Configuration
+# Copy this file and customize for your needs
+
+crawler:
+  max_depth: 3
+  max_pages: 10000
+  concurrency: 100
+  rate_limit: 10.0
+  respect_robots: false
+  follow_redirects: true
+  timeout: 30
+  user_agent: null
+  headers: {}
+  cookies: {}
+
+stealth:
+  enabled: false
+  rotate_ua: true
+  randomize_canvas: true
+  spoof_webgl: true
+  randomize_fonts: true
+  randomize_screen: true
+  simulate_mouse: false
+  rotate_ja3: false
+  delay_min: 0.5
+  delay_max: 3.0
+  tor_enabled: false
+  tor_proxy: "socks5://127.0.0.1:9050"
+  tor_control_port: 9051
+  tor_password: null
+  circuit_rotate: 10
+
+security:
+  enabled: false
+  xss_detection: true
+  sqli_detection: true
+  idor_detection: true
+  open_redirect: true
+  cors_scan: true
+  jwt_analyze: true
+  fuzz_parameters: true
+  fuzz_payloads: 50
+  auto_attack: false
+
+blogwatcher:
+  enabled: false
+  output_format: "rss"
+  scrape_interval: 3600
+  article_selectors:
+    - "article"
+    - "[class*='post']"
+    - "[class*='article']"
+    - "[class*='entry']"
+    - ".blog-item"
+  title_selectors:
+    - "h1"
+    - "h2"
+    - "[class*='title']"
+    - ".entry-title"
+  content_selectors:
+    - "article"
+    - "[class*='content']"
+    - ".entry-content"
+    - "main"
+  date_selectors:
+    - "time"
+    - "[class*='date']"
+    - ".published"
+    - ".entry-date"
+
+output:
+  format: "json"
+  directory: "./output"
+  save_responses: false
+  save_screenshots: false
+  include_headers: true

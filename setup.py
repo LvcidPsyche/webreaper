@@ -1,0 +1,27 @@
+from setuptools import setup, find_packages
+
+setup(
+    name="webreaper",
+    version="1.0.0",
+    packages=find_packages(),
+    install_requires=[
+        "aiohttp>=3.9.0",
+        "aiofiles>=23.0.0",
+        "beautifulsoup4>=4.12.0",
+        "lxml>=4.9.0",
+        "playwright>=1.40.0",
+        "pydantic>=2.0.0",
+        "pyyaml>=6.0.0",
+        "click>=8.1.0",
+        "rich>=13.0.0",
+        "stem>=1.8.0",
+        "tldextract>=5.0.0",
+        "fake-useragent>=1.4.0",
+    ],
+    entry_points={
+        "console_scripts": [
+            "webreaper=webreaper.cli:main",
+        ],
+    },
+    python_requires=">=3.11",
+)
