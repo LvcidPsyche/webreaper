@@ -266,22 +266,59 @@ class AnimatedDashboard:
         
         return layout
     
+    def update_from_crawl(self, result):
+        """Callback for real crawler to push live stats."""
+        self.stats.urls_scraped += 1
+        self.stats.current_url = result.url
+        self.stats.total_bytes += len(result.content_text)
+
+        elapsed = time.time() - self.stats.start_time
+        self.stats.requests_per_sec = self.stats.urls_scraped / elapsed if elapsed > 0 else 0
+
+        # Track by inferred genre keyword
+        for g in self.genres:
+            if any(kw in result.url.lower() for kw in [g.genre_name.lower().split('/')[0]]):
+                self.active_genre = g
+                break
+
+    async def run_with_crawler(self, start_urls, config):
+        """Launch real crawl and stream stats to dashboard."""
+        from .crawler import Crawler
+        from .database import get_db_manager
+
+        self.scraping = True
+        self.stats.start_time = time.time()
+
+        db = get_db_manager()
+        crawler = Crawler(config, db_manager=db)
+        if db:
+            await db.init_async()
+
+        # Run crawl as a background task
+        crawl_task = asyncio.create_task(
+            crawler.crawl(start_urls, callback=self.update_from_crawl)
+        )
+
+        try:
+            await crawl_task
+        finally:
+            self.scraping = False
+            if db:
+                await db.close()
+
     async def run(self):
-        """Run the animated dashboard."""
+        """Run the animated dashboard (demo mode when no crawl is running)."""
         console.clear()
-        
+
         with Live(self.render(), refresh_per_second=10, screen=True) as live:
             while True:
-                # Update stats if scraping
-                if self.scraping:
-                    self.stats.urls_scraped += random.randint(0, 3)
+                # Simulate activity only in demo mode (no real crawl)
+                if self.scraping and self.stats.urls_scraped == 0:
                     self.stats.total_bytes += random.randint(1000, 100000)
                     self.stats.requests_per_sec = random.uniform(50, 200)
-                    self.stats.current_url = f"https://example.com/page/{self.stats.urls_scraped}"
-                
-                # Update display
+                    self.stats.current_url = f"https://example.com/demo/{random.randint(1,999)}"
+
                 live.update(self.render())
-                
                 await asyncio.sleep(0.1)
     
     def start_scraping(self):
@@ -363,15 +400,30 @@ class GenreSelector:
         return descriptions.get(genre, "")
 
 
-def launch_dashboard():
-    """Launch the WebReaper dashboard."""
+def launch_dashboard(start_urls=None, config=None):
+    """Launch the WebReaper dashboard.
+
+    If start_urls provided, runs a real crawl with live stats.
+    Otherwise runs in demo/display mode.
+    """
     dashboard = AnimatedDashboard()
-    
-    # Start scraping for demo
     dashboard.start_scraping()
-    
+
+    async def _run():
+        if start_urls:
+            from .config import Config as _Config
+            cfg = config or _Config()
+            # Run dashboard UI and real crawl concurrently
+            await asyncio.gather(
+                dashboard.run(),
+                dashboard.run_with_crawler(start_urls, cfg),
+                return_exceptions=True,
+            )
+        else:
+            await dashboard.run()
+
     try:
-        asyncio.run(dashboard.run())
+        asyncio.run(_run())
     except KeyboardInterrupt:
         console.print("\n[bold green]👋 Thanks for using WebReaper![/bold green]")
 

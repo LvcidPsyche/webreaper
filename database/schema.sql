@@ -290,6 +290,27 @@ CREATE INDEX idx_classifications_article ON genre_classifications(article_id);
 CREATE INDEX idx_classifications_genre ON genre_classifications(primary_genre);
 
 -- =====================================================
+-- 9. PAGE_SNAPSHOTS Table (Change Monitoring)
+-- =====================================================
+CREATE TABLE page_snapshots (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    url TEXT NOT NULL,
+    content_hash VARCHAR(64) NOT NULL,
+    content_text TEXT,
+    title TEXT,
+    status_code INTEGER,
+    snapshot_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    changed BOOLEAN DEFAULT FALSE,
+    diff_summary TEXT
+);
+
+CREATE INDEX idx_snapshots_url ON page_snapshots(url);
+CREATE INDEX idx_snapshots_snapshot_at ON page_snapshots(snapshot_at DESC);
+CREATE INDEX idx_snapshots_changed ON page_snapshots(changed) WHERE changed = TRUE;
+
+COMMENT ON TABLE page_snapshots IS 'Content snapshots for URL change monitoring';
+
+-- =====================================================
 -- Create Database User
 -- =====================================================
 -- Run separately as superuser:
