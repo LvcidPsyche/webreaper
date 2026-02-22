@@ -507,6 +507,48 @@ def init(path: str):
     console.print("[dim]Edit this file to customize WebReaper settings[/dim]")
 
 
+@cli.command()
+@click.option('--host', default='127.0.0.1', help='Server host')
+@click.option('--port', '-p', default=8000, help='Server port')
+def server(host: str, port: int):
+    """Start the WebReaper API server."""
+    console.print(f"[bold blue]WebReaper API Server[/bold blue]")
+    console.print(f"Starting on {host}:{port}")
+    console.print(f"Dashboard: http://{host}:{port}")
+
+    from server.main import start_server
+    start_server(host=host, port=port)
+
+
+@cli.command()
+@click.argument('provider', type=click.Choice(['openclaw', 'claude_api', 'openai_api', 'ollama']))
+@click.option('--uri', default=None, help='WebSocket URI (for openclaw/custom)')
+@click.option('--api-key', default=None, help='API key (for claude/openai)')
+@click.option('--model', default=None, help='Model name')
+def connect(provider: str, uri: str, api_key: str, model: str):
+    """Connect to an AI agent provider."""
+    console.print(f"[bold cyan]Connecting to {provider}...[/bold cyan]")
+
+    config = {}
+    if uri:
+        config["uri"] = uri
+    if api_key:
+        config["api_key"] = api_key
+    if model:
+        config["model"] = model
+
+    async def run():
+        from webreaper.gateway.gateway import AgentGateway
+        gateway = AgentGateway.instance()
+        success = await gateway.connect(provider, config)
+        if success:
+            console.print(f"[green]Connected to {provider}[/green]")
+        else:
+            console.print(f"[red]Failed to connect to {provider}[/red]")
+
+    asyncio.run(run())
+
+
 def main():
     cli()
 

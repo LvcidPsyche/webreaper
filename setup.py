@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="webreaper",
-    version="1.0.0",
+    version="2.0.0",
     packages=find_packages(),
     install_requires=[
         "aiohttp>=3.9.0",
@@ -17,6 +17,19 @@ setup(
         "stem>=1.8.0",
         "tldextract>=5.0.0",
         "fake-useragent>=1.4.0",
+        "fastapi>=0.110.0",
+        "uvicorn[standard]>=0.27.0",
+        "sse-starlette>=1.6.0",
+        "websockets>=12.0",
+        "httpx>=0.27.0",
+        "anthropic>=0.28.0",
+        "sqlalchemy>=2.0.0",
+        "asyncpg>=0.29.0",
+        "psycopg2-binary>=2.9.0",
+        "aiohttp-socks>=0.8.0",
+        "dnspython>=2.5.0",
+        "python-whois>=0.9.0",
+        "openpyxl>=3.1.0",
     ],
     entry_points={
         "console_scripts": [

@@ -61,10 +61,12 @@ class Crawler:
         self.progress: Optional[Progress] = None
         self.task_id: Optional[TaskID] = None
         self._stop_event = asyncio.Event()
+        self._stop_flag = False  # For graceful job cancellation via API
         self._active_workers = 0
         self._active_lock = asyncio.Lock()
         self._crawl_id: Optional[str] = None
         self._robots: Optional[RobotsCache] = None
+        self._metrics_callback: Optional[Callable] = None  # For metrics integration
 
     async def crawl(self, start_urls: List[str], callback: Optional[Callable] = None) -> List[CrawlResult]:
         """Start crawling from seed URLs."""
@@ -124,6 +126,10 @@ class Crawler:
         try:
             consecutive_empty = 0
             while True:
+                # Check stop flag (set by API job cancellation)
+                if self._stop_flag:
+                    break
+
                 # Check page limit
                 if self.stats["pages_crawled"] >= self.config.crawler.max_pages:
                     break

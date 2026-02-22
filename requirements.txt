@@ -1,3 +1,4 @@
+# Core
 aiohttp>=3.9.0
 aiofiles>=23.0.0
 beautifulsoup4>=4.12.0
@@ -21,3 +22,22 @@ aiohttp-socks>=0.8.0
 
 # AI digest
 anthropic>=0.28.0
+
+# Engine upgrades — TLS fingerprint impersonation
+curl_cffi>=0.7.0
+
+# FastAPI server
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+sse-starlette>=1.6.0
+websockets>=12.0
+
+# Infrastructure X-ray
+dnspython>=2.5.0
+python-whois>=0.9.0
+
+# Export
+openpyxl>=3.1.0
+
+# Alerting & HTTP client
+httpx>=0.27.0

@@ -1,0 +1,27 @@
+{
+  "productName": "WebReaper",
+  "version": "2.0.0",
+  "identifier": "com.webreaper.app",
+  "build": {
+    "beforeDevCommand": "cd ../../web && npm run dev",
+    "devUrl": "http://localhost:3000",
+    "frontendDist": "../../web/out"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "WebReaper",
+        "width": 1400,
+        "height": 900,
+        "resizable": true,
+        "center": true,
+        "decorations": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "appimage"],
+    "externalBin": ["binaries/webreaper-server"]
+  }
+}
