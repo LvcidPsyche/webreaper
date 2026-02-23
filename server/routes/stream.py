@@ -55,14 +55,15 @@ async def stream_job(request: Request, job_id: str):
             if not job:
                 yield {"event": "error", "data": json.dumps({"error": "Job not found"})}
                 break
+            stats = getattr(job, "stats", {}) if isinstance(getattr(job, "stats", None), dict) else {}
             yield {
                 "event": "progress",
                 "data": json.dumps({
                     "job_id": job_id,
-                    "pages_crawled": getattr(job, "pages_crawled", 0),
-                    "pages_failed": getattr(job, "pages_failed", 0),
-                    "queue_size": getattr(job, "queue_size", 0),
-                    "current_url": getattr(job, "current_url", ""),
+                    "pages_crawled": stats.get("pages_crawled", 0),
+                    "pages_failed": stats.get("pages_failed", 0),
+                    "queue_size": stats.get("queue_size", 0),
+                    "current_url": stats.get("current_url", ""),
                 })
             }
             await asyncio.sleep(1)

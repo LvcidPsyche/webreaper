@@ -13,6 +13,8 @@ export DATABASE_URL="sqlite+aiosqlite:///$DB_PATH"
 # Set this to your own secret before generating production license keys.
 # Keys generated with the dev secret are fine for testing.
 export WEBREAPER_LICENSE_SECRET="${WEBREAPER_LICENSE_SECRET:-wr-dev-secret-change-in-production}"
+# Admin mode — owner bypass, no license required
+export WEBREAPER_ADMIN=1
 
 echo "=== WebReaper ==="
 echo "DB:  $DB_PATH"

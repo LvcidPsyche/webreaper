@@ -1,76 +1,183 @@
-"""REST endpoints for agent provider management."""
+"""REST endpoints for agent provider management (CRUD)."""
 
+import json
+import uuid
 import logging
-from fastapi import APIRouter, Request, HTTPException
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-
-from webreaper.gateway.gateway import AgentGateway
-from webreaper.gateway.registry import ProviderRegistry
+from typing import Optional
 
 router = APIRouter()
 logger = logging.getLogger("webreaper.agents")
 
-
-class ConnectRequest(BaseModel):
-    provider: str
-    config: dict
+PROVIDERS_FILE = Path.home() / ".config" / "webreaper" / "providers.json"
 
 
-class SaveConfigRequest(BaseModel):
-    provider: str
-    config: dict
+def _load_providers() -> list[dict]:
+    if PROVIDERS_FILE.exists():
+        try:
+            return json.loads(PROVIDERS_FILE.read_text())
+        except Exception:
+            pass
+    return []
 
 
-@router.get("/providers")
-async def list_providers():
-    """List available agent providers and their status."""
-    registry = ProviderRegistry()
-    providers = registry.list_providers()
-    gateway = AgentGateway.instance()
+def _save_providers(providers: list[dict]):
+    PROVIDERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PROVIDERS_FILE.write_text(json.dumps(providers, indent=2))
+    os.chmod(PROVIDERS_FILE, 0o600)
+
+
+def _mask_key(key: str) -> str:
+    if not key:
+        return ""
+    if len(key) <= 8:
+        return "***"
+    return key[:4] + "..." + key[-4:]
+
+
+def _provider_response(p: dict) -> dict:
+    """Return provider dict with API key masked."""
     return {
-        "providers": providers,
-        "connected": gateway.is_connected(),
-        "active_provider": gateway._adapter.provider_name() if gateway._adapter else None,
+        "id": p["id"],
+        "name": p["name"],
+        "type": p["type"],
+        "base_url": p.get("base_url", ""),
+        "api_key_set": bool(p.get("api_key", "")),
+        "model": p.get("model", ""),
+        "status": p.get("status", "disconnected"),
+        "last_checked": p.get("last_checked"),
     }
 
 
-@router.post("/connect")
-async def connect_provider(req: ConnectRequest):
-    """Connect to an agent provider."""
-    gateway = AgentGateway.instance()
-    success = await gateway.connect(req.provider, req.config)
-    if not success:
-        raise HTTPException(status_code=400, detail=f"Failed to connect to {req.provider}")
-    return {"status": "connected", "provider": req.provider}
+class ProviderCreate(BaseModel):
+    name: str
+    type: str
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
 
 
-@router.post("/disconnect")
-async def disconnect_provider():
-    """Disconnect from current agent provider."""
-    gateway = AgentGateway.instance()
-    await gateway.disconnect()
-    return {"status": "disconnected"}
+class ProviderUpdate(BaseModel):
+    name: Optional[str] = None
+    type: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model: Optional[str] = None
 
 
-@router.post("/config")
-async def save_provider_config(req: SaveConfigRequest):
-    """Save provider configuration (API keys stored securely)."""
-    registry = ProviderRegistry()
-    registry.save_config(req.provider, req.config)
-    return {"status": "saved", "provider": req.provider}
+@router.get("")
+async def list_providers():
+    """List configured agent providers."""
+    providers = _load_providers()
+    return [_provider_response(p) for p in providers]
 
 
-@router.get("/config/{provider}")
-async def get_provider_config(provider: str):
-    """Get saved provider config (API keys masked)."""
-    registry = ProviderRegistry()
-    config = registry.get_config(provider)
-    if not config:
-        raise HTTPException(status_code=404, detail="No config for this provider")
-    masked = {}
-    for k, v in config.items():
-        if "key" in k.lower() or "token" in k.lower() or "password" in k.lower():
-            masked[k] = v[:4] + "..." + v[-4:] if len(str(v)) > 8 else "***"
+@router.post("")
+async def create_provider(req: ProviderCreate):
+    """Add a new agent provider."""
+    providers = _load_providers()
+    provider = {
+        "id": str(uuid.uuid4()),
+        "name": req.name,
+        "type": req.type,
+        "base_url": req.base_url,
+        "api_key": req.api_key,
+        "model": req.model,
+        "status": "disconnected",
+        "last_checked": None,
+    }
+    providers.append(provider)
+    _save_providers(providers)
+    return _provider_response(provider)
+
+
+@router.put("/{provider_id}")
+async def update_provider(provider_id: str, req: ProviderUpdate):
+    """Update an existing agent provider."""
+    providers = _load_providers()
+    for p in providers:
+        if p["id"] == provider_id:
+            if req.name is not None:
+                p["name"] = req.name
+            if req.type is not None:
+                p["type"] = req.type
+            if req.base_url is not None:
+                p["base_url"] = req.base_url
+            if req.api_key:  # only update if a new key was provided (empty = unchanged)
+                p["api_key"] = req.api_key
+            if req.model is not None:
+                p["model"] = req.model
+            p["status"] = "disconnected"
+            _save_providers(providers)
+            return _provider_response(p)
+    raise HTTPException(status_code=404, detail="Provider not found")
+
+
+@router.delete("/{provider_id}")
+async def delete_provider(provider_id: str):
+    """Delete an agent provider."""
+    providers = _load_providers()
+    updated = [p for p in providers if p["id"] != provider_id]
+    if len(updated) == len(providers):
+        raise HTTPException(status_code=404, detail="Provider not found")
+    _save_providers(updated)
+    return {"status": "deleted", "id": provider_id}
+
+
+@router.post("/{provider_id}/test")
+async def test_provider(provider_id: str):
+    """Test connectivity to an agent provider."""
+    providers = _load_providers()
+    provider = next((p for p in providers if p["id"] == provider_id), None)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    ok = False
+    try:
+        ptype = provider.get("type", "")
+        api_key = provider.get("api_key", "")
+        base_url = provider.get("base_url", "")
+        model = provider.get("model", "")
+
+        import httpx
+        if ptype == "anthropic":
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                    json={"model": model or "claude-haiku-4-5-20251001", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]},
+                )
+                ok = r.status_code in (200, 400)  # 400 = auth ok but bad params
+        elif ptype == "openai":
+            url = base_url.rstrip("/") or "https://api.openai.com/v1"
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(f"{url}/models", headers={"Authorization": f"Bearer {api_key}"})
+                ok = r.status_code == 200
+        elif ptype == "ollama":
+            url = base_url.rstrip("/") or "http://localhost:11434"
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(f"{url}/api/tags")
+                ok = r.status_code == 200
         else:
-            masked[k] = v
-    return masked
+            # custom — just try a HEAD on base_url
+            if base_url:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.head(base_url)
+                    ok = r.status_code < 500
+    except Exception as e:
+        logger.debug(f"Provider test failed: {e}")
+        ok = False
+
+    # Update status in storage
+    now = datetime.now(timezone.utc).isoformat()
+    for p in providers:
+        if p["id"] == provider_id:
+            p["status"] = "connected" if ok else "error"
+            p["last_checked"] = now
+    _save_providers(providers)
+
+    return {"ok": ok}

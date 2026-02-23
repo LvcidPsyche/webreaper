@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from webreaper.config import Config
 from webreaper.crawler import Crawler
-from webreaper.license import get_tier, get_page_limit
+from webreaper.license import get_tier, get_page_limit, is_admin
 from webreaper.usage import can_crawl, add_pages
 
 router = APIRouter()
@@ -34,23 +34,23 @@ class JobResponse(BaseModel):
 @router.post("/start", response_model=JobResponse)
 async def start_crawl(req: CrawlJobRequest, request: Request):
     """Start a new crawl job."""
-    # --- License enforcement ---
-    tier = get_tier()
-    page_limit = get_page_limit()
-    allowed, reason = can_crawl(req.max_pages, page_limit)
-    if not allowed:
-        raise HTTPException(
-            status_code=402,
-            detail=f"License limit: {reason}",
-        )
-
-    # Cap max_pages at remaining allowance (LITE tier)
+    # --- License enforcement (skipped in admin mode) ---
     effective_max = req.max_pages
-    if page_limit is not None:
-        from webreaper.usage import get_usage
-        used = get_usage().get("pages_crawled", 0)
-        remaining = page_limit - used
-        effective_max = min(req.max_pages, remaining)
+    if not is_admin():
+        tier = get_tier()
+        page_limit = get_page_limit()
+        allowed, reason = can_crawl(req.max_pages, page_limit)
+        if not allowed:
+            raise HTTPException(
+                status_code=402,
+                detail=f"License limit: {reason}",
+            )
+        # Cap max_pages at remaining allowance (LITE tier)
+        if page_limit is not None:
+            from webreaper.usage import get_usage
+            used = get_usage().get("pages_crawled", 0)
+            remaining = page_limit - used
+            effective_max = min(req.max_pages, remaining)
 
     job_id = str(uuid.uuid4())[:8]
     config = Config()

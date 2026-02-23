@@ -24,3 +24,9 @@ Thumbs.db
 # Env
 .env
 .env.local
+
+# WebReaper data
+.webreaper/
+*.db
+*.db-shm
+*.db-wal

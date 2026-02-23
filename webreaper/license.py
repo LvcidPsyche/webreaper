@@ -132,3 +132,8 @@ def revoke_license():
     """Remove installed license."""
     if LICENSE_FILE.exists():
         LICENSE_FILE.unlink()
+
+
+def is_admin() -> bool:
+    """Return True if running in admin mode (owner bypass — no license required)."""
+    return os.getenv("WEBREAPER_ADMIN", "").strip() == "1"

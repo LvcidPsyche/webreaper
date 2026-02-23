@@ -1,5 +1,7 @@
 """REST endpoints for workstation data, briefs, and canvas."""
 
+import json
+import uuid
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
@@ -20,28 +22,31 @@ async def get_briefs(request: Request):
     if not db:
         return {"briefs": []}
 
-    async with db.get_session() as session:
-        from sqlalchemy import text
-        result = await session.execute(text("""
-            SELECT id, type, brief, status, results, created_at, completed_at
-            FROM missions
-            ORDER BY created_at DESC
-            LIMIT 20
-        """))
-        rows = result.fetchall()
-        return {
-            "briefs": [
-                {
-                    "id": str(r.id),
-                    "type": r.type,
-                    "brief": r.brief,
-                    "status": r.status,
-                    "results": r.results,
-                    "created_at": str(r.created_at),
-                }
-                for r in rows
-            ]
-        }
+    try:
+        async with db.get_session() as session:
+            from sqlalchemy import text
+            result = await session.execute(text("""
+                SELECT id, type, brief, status, results, created_at, completed_at
+                FROM missions
+                ORDER BY created_at DESC
+                LIMIT 20
+            """))
+            rows = result.fetchall()
+            return {
+                "briefs": [
+                    {
+                        "id": str(r.id),
+                        "type": r.type,
+                        "brief": r.brief,
+                        "status": r.status,
+                        "results": r.results,
+                        "created_at": str(r.created_at),
+                    }
+                    for r in rows
+                ]
+            }
+    except Exception:
+        return {"briefs": []}
 
 
 @router.get("/canvas")
@@ -51,26 +56,29 @@ async def get_canvas(request: Request):
     if not db:
         return {"pins": []}
 
-    async with db.get_session() as session:
-        from sqlalchemy import text
-        result = await session.execute(text("""
-            SELECT id, category, content, position_x, position_y, created_at
-            FROM workstation_pins
-            ORDER BY created_at DESC
-        """))
-        rows = result.fetchall()
-        return {
-            "pins": [
-                {
-                    "id": str(r.id),
-                    "category": r.category,
-                    "content": r.content,
-                    "position_x": r.position_x,
-                    "position_y": r.position_y,
-                }
-                for r in rows
-            ]
-        }
+    try:
+        async with db.get_session() as session:
+            from sqlalchemy import text
+            result = await session.execute(text("""
+                SELECT id, category, content, position_x, position_y, created_at
+                FROM workstation_pins
+                ORDER BY created_at DESC
+            """))
+            rows = result.fetchall()
+            return {
+                "pins": [
+                    {
+                        "id": str(r.id),
+                        "category": r.category,
+                        "content": r.content,
+                        "position_x": r.position_x,
+                        "position_y": r.position_y,
+                    }
+                    for r in rows
+                ]
+            }
+    except Exception:
+        return {"pins": []}
 
 
 @router.post("/canvas/pin")
@@ -80,20 +88,24 @@ async def add_pin(pin: PinRequest, request: Request):
     if not db:
         raise HTTPException(status_code=503, detail="Database not available")
 
-    async with db.get_session() as session:
-        from sqlalchemy import text
-        result = await session.execute(
-            text("""
-                INSERT INTO workstation_pins (category, content, position_x, position_y)
-                VALUES (:category, :content::jsonb, :x, :y)
-                RETURNING id
-            """),
-            {
-                "category": pin.category,
-                "content": str(pin.content),
-                "x": pin.position_x,
-                "y": pin.position_y,
-            }
-        )
-        row = result.fetchone()
-        return {"id": str(row.id), "status": "created"}
+    try:
+        async with db.get_session() as session:
+            from sqlalchemy import text
+            pin_id = str(uuid.uuid4())
+            await session.execute(
+                text("""
+                    INSERT INTO workstation_pins (id, category, content, position_x, position_y)
+                    VALUES (:id, :category, :content, :x, :y)
+                """),
+                {
+                    "id": pin_id,
+                    "category": pin.category,
+                    "content": json.dumps(pin.content),
+                    "x": pin.position_x,
+                    "y": pin.position_y,
+                }
+            )
+            await session.commit()
+            return {"id": pin_id, "status": "created"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

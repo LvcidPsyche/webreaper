@@ -56,21 +56,26 @@ async def search_content(
         raise HTTPException(status_code=503, detail="Database not available")
 
     async with db.get_session() as session:
-        from sqlalchemy import text
-        result = await session.execute(
-            text("""
-                SELECT id, url, title,
-                       ts_headline('english', content_text, plainto_tsquery(:q)) as snippet,
-                       ts_rank(search_vector, plainto_tsquery(:q)) as rank
-                FROM pages
-                WHERE search_vector @@ plainto_tsquery(:q)
-                ORDER BY rank DESC
-                LIMIT :limit
-            """),
-            {"q": q, "limit": limit}
+        from sqlalchemy import select
+        from webreaper.database import Page
+        pattern = f"%{q}%"
+        query = (
+            select(Page)
+            .where(
+                (Page.title.ilike(pattern)) | (Page.content_text.ilike(pattern))
+            )
+            .order_by(Page.scraped_at.desc())
+            .limit(limit)
         )
-        rows = result.fetchall()
+        result = await session.execute(query)
+        pages = result.scalars().all()
         return [
-            {"id": str(r.id), "url": r.url, "title": r.title, "snippet": r.snippet, "rank": r.rank}
-            for r in rows
+            {
+                "id": str(p.id),
+                "url": p.url,
+                "title": p.title or "",
+                "snippet": (p.content_text or "")[:200],
+                "rank": 1.0,
+            }
+            for p in pages
         ]
