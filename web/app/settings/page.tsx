@@ -1,17 +1,184 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Settings, Plus, Trash2, RefreshCw, Eye, EyeOff, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Settings, Plus, Trash2, RefreshCw, Eye, EyeOff, CheckCircle, XCircle, Loader2, Key, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { AnimateIn } from '@/components/shared/animate-in';
 import { SkeletonCard } from '@/components/shared/skeleton';
 import { useApi } from '@/hooks/use-api';
 import api from '@/lib/api';
-import type { AgentProvider } from '@/lib/types';
+import type { AgentProvider, LicenseStatus } from '@/lib/types';
 
 interface ProviderForm { name: string; type: string; base_url: string; api_key: string; model: string }
 const emptyForm: ProviderForm = { name: '', type: 'anthropic', base_url: '', api_key: '', model: '' };
 const inputCls = 'mt-1 w-full bg-reaper-bg border border-reaper-border rounded px-3 py-1.5 text-sm font-mono text-white focus:border-reaper-accent outline-none';
+
+function LicensePanel() {
+  const { data: license, loading, refetch } = useApi<LicenseStatus>('/api/license');
+  const [keyInput, setKeyInput] = useState('');
+  const [activating, setActivating] = useState(false);
+  const [activateError, setActivateError] = useState<string | null>(null);
+  const [activateSuccess, setActivateSuccess] = useState(false);
+
+  const handleActivate = useCallback(async () => {
+    if (!keyInput.trim()) return;
+    setActivating(true);
+    setActivateError(null);
+    setActivateSuccess(false);
+    try {
+      await api.post('/api/license/activate', { key: keyInput.trim() });
+      setActivateSuccess(true);
+      setKeyInput('');
+      refetch();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Activation failed';
+      setActivateError(msg.replace('API 400: ', ''));
+    } finally {
+      setActivating(false);
+    }
+  }, [keyInput, refetch]);
+
+  const handleDeactivate = useCallback(async () => {
+    await api.delete('/api/license');
+    refetch();
+  }, [refetch]);
+
+  const tierColor = (tier: string) => {
+    if (tier === 'PRO') return 'text-reaper-accent border-reaper-accent/40 bg-reaper-accent/10';
+    if (tier === 'LITE') return 'text-yellow-400 border-yellow-400/40 bg-yellow-400/10';
+    return 'text-reaper-muted border-reaper-border bg-reaper-surface';
+  };
+
+  if (loading) return <SkeletonCard />;
+
+  const pctUsed = license?.pct_used ?? 0;
+  const barColor = pctUsed > 80 ? 'bg-reaper-danger' : pctUsed > 50 ? 'bg-yellow-400' : 'bg-reaper-success';
+
+  return (
+    <AnimateIn>
+      <div className="bg-reaper-surface border border-reaper-border rounded-lg p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-mono text-white flex items-center gap-2">
+            <Key className="w-4 h-4 text-reaper-accent" /> License
+          </h2>
+          {license?.installed && (
+            <span className={clsx('text-xs font-mono px-2 py-0.5 rounded border', tierColor(license.tier))}>
+              {license.tier}
+            </span>
+          )}
+        </div>
+
+        {license?.installed ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3 text-xs font-mono">
+              <div>
+                <div className="text-reaper-muted mb-0.5">Key</div>
+                <div className="text-white">{license.key_preview}</div>
+              </div>
+              <div>
+                <div className="text-reaper-muted mb-0.5">Activated</div>
+                <div className="text-white">{license.installed_at?.slice(0, 10) ?? '—'}</div>
+              </div>
+              <div>
+                <div className="text-reaper-muted mb-0.5">Plan</div>
+                <div className="text-white">{license.tier_description}</div>
+              </div>
+              <div>
+                <div className="text-reaper-muted mb-0.5">Month</div>
+                <div className="text-white">{license.month}</div>
+              </div>
+            </div>
+
+            {license.pages_limit !== null && (
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs font-mono text-reaper-muted">
+                  <span>Pages this month</span>
+                  <span>{license.pages_used} / {license.pages_limit}</span>
+                </div>
+                <div className="h-1.5 bg-reaper-bg rounded-full overflow-hidden">
+                  <div
+                    className={clsx('h-full rounded-full transition-all', barColor)}
+                    style={{ width: `${Math.min(pctUsed, 100)}%` }}
+                  />
+                </div>
+                <div className="text-xs font-mono text-reaper-muted text-right">
+                  {license.pages_remaining} remaining
+                </div>
+              </div>
+            )}
+
+            {license.pages_limit === null && (
+              <div className="flex items-center gap-2 text-xs font-mono text-reaper-success">
+                <ShieldCheck className="w-3.5 h-3.5" /> Unlimited pages
+              </div>
+            )}
+
+            <button
+              onClick={handleDeactivate}
+              className="text-xs font-mono text-reaper-muted hover:text-reaper-danger transition-colors"
+            >
+              Remove license
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-start gap-2 text-xs font-mono text-yellow-400/80 bg-yellow-400/5 border border-yellow-400/20 rounded p-2.5">
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>No license installed. The API is running but crawl jobs are blocked until you activate a license.</span>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs font-mono text-reaper-muted">Enter your license key</div>
+              <div className="flex gap-2">
+                <input
+                  value={keyInput}
+                  onChange={(e) => setKeyInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleActivate()}
+                  placeholder="WR-LITE-XXXXXXXX-YYYYYYYY"
+                  className="flex-1 bg-reaper-bg border border-reaper-border rounded px-3 py-1.5 text-sm font-mono text-white focus:border-reaper-accent outline-none"
+                />
+                <button
+                  onClick={handleActivate}
+                  disabled={activating || !keyInput.trim()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-reaper-accent/10 text-reaper-accent border border-reaper-accent/30 rounded text-xs font-mono hover:bg-reaper-accent/20 transition-colors disabled:opacity-50"
+                >
+                  {activating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Key className="w-3.5 h-3.5" />}
+                  Activate
+                </button>
+              </div>
+              {activateError && (
+                <div className="flex items-center gap-1.5 text-xs font-mono text-reaper-danger">
+                  <XCircle className="w-3.5 h-3.5" /> {activateError}
+                </div>
+              )}
+              {activateSuccess && (
+                <div className="flex items-center gap-1.5 text-xs font-mono text-reaper-success">
+                  <CheckCircle className="w-3.5 h-3.5" /> License activated successfully!
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-reaper-border pt-3 space-y-2">
+              <div className="text-xs font-mono text-reaper-muted">Available plans:</div>
+              <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                <div className="border border-yellow-400/20 rounded p-2.5 space-y-1">
+                  <div className="text-yellow-400 font-bold">LITE</div>
+                  <div className="text-white">$19.99 / month</div>
+                  <div className="text-reaper-muted">500 pages/month</div>
+                </div>
+                <div className="border border-reaper-accent/20 rounded p-2.5 space-y-1">
+                  <div className="text-reaper-accent font-bold">PRO</div>
+                  <div className="text-white">$119.99 one-time</div>
+                  <div className="text-reaper-muted">Unlimited forever</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </AnimateIn>
+  );
+}
 
 export default function SettingsPage() {
   const { data: providers, loading, refetch } = useApi<AgentProvider[]>('/api/agents');
@@ -44,6 +211,8 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-4 max-w-3xl">
+      <LicensePanel />
+
       <AnimateIn>
         <div className="flex items-center justify-between">
           <h1 className="text-sm font-mono text-white flex items-center gap-2">

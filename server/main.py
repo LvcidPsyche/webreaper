@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from webreaper.database import get_db_manager
-from server.routes import jobs, results, security, stream, chat, agents, workstation
+from server.routes import jobs, results, security, stream, chat, agents, workstation, license
 from server.services.log_buffer import LogBuffer
 from server.services.metrics import MetricsService
 
@@ -61,6 +61,7 @@ app.include_router(stream.router, prefix="/stream", tags=["streaming"])
 app.include_router(chat.router, prefix="/ws", tags=["websocket"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
 app.include_router(workstation.router, prefix="/api/workstation", tags=["workstation"])
+app.include_router(license.router, prefix="/api/license", tags=["license"])
 
 
 @app.get("/health")

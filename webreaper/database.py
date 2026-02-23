@@ -1,22 +1,32 @@
-"""WebReaper database models and connection management."""
+"""WebReaper database models and connection management.
+
+Supports both SQLite (default, for local/desktop use) and PostgreSQL.
+Set DATABASE_URL env var:
+  SQLite:     sqlite+aiosqlite:////home/user/.webreaper/webreaper.db
+  PostgreSQL: postgresql+asyncpg://user:pass@localhost:5432/webreaper
+"""
 
 import os
+import uuid
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 
 from sqlalchemy import (
     create_engine, Column, String, Integer, Float, DateTime,
-    Boolean, Text, JSON, ForeignKey, Index,
+    Boolean, Text, JSON, ForeignKey,
     func, text
 )
-from sqlalchemy.dialects.postgresql import UUID, ARRAY, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker, Session
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 
 def _now():
     return datetime.now(timezone.utc)
+
+
+def _uuid():
+    return str(uuid.uuid4())
 
 
 class Base(DeclarativeBase):
@@ -27,7 +37,7 @@ class Crawl(Base):
     """Crawl job metadata and statistics."""
     __tablename__ = 'crawls'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id = Column(String(36), primary_key=True, default=_uuid)
     started_at = Column(DateTime(timezone=True), default=_now)
     completed_at = Column(DateTime(timezone=True), nullable=True)
     status = Column(String(20), default='running')
@@ -55,8 +65,8 @@ class Page(Base):
     """Individual crawled pages with full content."""
     __tablename__ = 'pages'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    crawl_id = Column(UUID(as_uuid=True), ForeignKey('crawls.id', ondelete='CASCADE'))
+    id = Column(String(36), primary_key=True, default=_uuid)
+    crawl_id = Column(String(36), ForeignKey('crawls.id', ondelete='CASCADE'))
 
     url = Column(Text, nullable=False, index=True)
     canonical_url = Column(Text)
@@ -81,7 +91,7 @@ class Page(Base):
     external_links_count = Column(Integer)
 
     h1 = Column(Text)
-    h2s = Column(ARRAY(Text))
+    h2s = Column(JSON)  # list of strings
     meta_keywords = Column(Text)
     og_title = Column(Text)
     og_description = Column(Text)
@@ -89,7 +99,6 @@ class Page(Base):
 
     scraped_at = Column(DateTime(timezone=True), default=_now, index=True)
     depth = Column(Integer, default=0)
-    search_vector = Column(TSVECTOR)
 
     crawl = relationship("Crawl", back_populates="pages")
     outgoing_links = relationship("Link", foreign_keys="Link.source_page_id", back_populates="source_page")
@@ -102,13 +111,13 @@ class Link(Base):
     """Discovered links with relationship mapping."""
     __tablename__ = 'links'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    crawl_id = Column(UUID(as_uuid=True), ForeignKey('crawls.id', ondelete='CASCADE'))
-    source_page_id = Column(UUID(as_uuid=True), ForeignKey('pages.id', ondelete='CASCADE'))
+    id = Column(String(36), primary_key=True, default=_uuid)
+    crawl_id = Column(String(36), ForeignKey('crawls.id', ondelete='CASCADE'))
+    source_page_id = Column(String(36), ForeignKey('pages.id', ondelete='CASCADE'))
     target_url = Column(Text, nullable=False)
     target_domain = Column(String(255))
     anchor_text = Column(Text)
-    rel_attributes = Column(ARRAY(String))
+    rel_attributes = Column(JSON)  # list of strings
     is_external = Column(Boolean, default=False, index=True)
     is_broken = Column(Boolean, default=False, index=True)
     status_code = Column(Integer)
@@ -123,9 +132,9 @@ class SecurityFinding(Base):
     """Vulnerability findings from security scans."""
     __tablename__ = 'security_findings'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    crawl_id = Column(UUID(as_uuid=True), ForeignKey('crawls.id', ondelete='CASCADE'))
-    page_id = Column(UUID(as_uuid=True), ForeignKey('pages.id', ondelete='CASCADE'))
+    id = Column(String(36), primary_key=True, default=_uuid)
+    crawl_id = Column(String(36), ForeignKey('crawls.id', ondelete='CASCADE'))
+    page_id = Column(String(36), ForeignKey('pages.id', ondelete='CASCADE'))
 
     finding_type = Column(String(50), nullable=False, index=True)
     severity = Column(String(20), nullable=False, index=True)
@@ -136,7 +145,7 @@ class SecurityFinding(Base):
     title = Column(Text, nullable=False)
     description = Column(Text)
     remediation = Column(Text)
-    references = Column(ARRAY(Text))
+    references = Column(JSON)  # list of strings
 
     cve_id = Column(String(20))
     cwe_id = Column(String(20))
@@ -157,7 +166,7 @@ class Article(Base):
     """Extracted articles from RSS-less sites (blogwatcher)."""
     __tablename__ = 'articles'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id = Column(String(36), primary_key=True, default=_uuid)
     source_feed = Column(String(255), index=True)
     source_url = Column(Text)
     source_domain = Column(String(255))
@@ -170,11 +179,10 @@ class Article(Base):
     word_count = Column(Integer)
     image_url = Column(Text)
     genre = Column(String(50), index=True)
-    tags = Column(ARRAY(String))
+    tags = Column(JSON)  # list of strings
     scraped_at = Column(DateTime(timezone=True), default=_now, index=True)
     processed = Column(Boolean, default=False, index=True)
     error_message = Column(Text)
-    search_vector = Column(TSVECTOR)
 
     classification = relationship("GenreClassification", back_populates="article", uselist=False)
 
@@ -183,9 +191,9 @@ class Form(Base):
     """Discovered forms for security testing."""
     __tablename__ = 'forms'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    page_id = Column(UUID(as_uuid=True), ForeignKey('pages.id', ondelete='CASCADE'))
-    crawl_id = Column(UUID(as_uuid=True), ForeignKey('crawls.id', ondelete='CASCADE'))
+    id = Column(String(36), primary_key=True, default=_uuid)
+    page_id = Column(String(36), ForeignKey('pages.id', ondelete='CASCADE'))
+    crawl_id = Column(String(36), ForeignKey('crawls.id', ondelete='CASCADE'))
     action_url = Column(Text)
     method = Column(String(10), default='GET')
     fields = Column(JSON)
@@ -201,23 +209,23 @@ class DashboardMetric(Base):
     """Real-time dashboard analytics data."""
     __tablename__ = 'dashboard_metrics'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id = Column(String(36), primary_key=True, default=_uuid)
     metric_name = Column(String(100), nullable=False, index=True)
     metric_value = Column(Float, nullable=False)
     metric_type = Column(String(20), default='gauge')
     genre = Column(String(50), index=True)
     domain = Column(String(255))
-    crawl_id = Column(UUID(as_uuid=True))
+    crawl_id = Column(String(36))
     recorded_at = Column(DateTime(timezone=True), default=_now, index=True)
 
 
 class GenreClassification(Base):
-    """ML-based content classification scores."""
+    """Content classification scores."""
     __tablename__ = 'genre_classifications'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    page_id = Column(UUID(as_uuid=True), ForeignKey('pages.id', ondelete='CASCADE'), nullable=True)
-    article_id = Column(UUID(as_uuid=True), ForeignKey('articles.id', ondelete='CASCADE'), nullable=True)
+    id = Column(String(36), primary_key=True, default=_uuid)
+    page_id = Column(String(36), ForeignKey('pages.id', ondelete='CASCADE'), nullable=True)
+    article_id = Column(String(36), ForeignKey('articles.id', ondelete='CASCADE'), nullable=True)
 
     cybersecurity_score = Column(Float, default=0)
     ai_ml_score = Column(Float, default=0)
@@ -244,7 +252,7 @@ class PageSnapshot(Base):
     """Content snapshots for change monitoring."""
     __tablename__ = 'page_snapshots'
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id = Column(String(36), primary_key=True, default=_uuid)
     url = Column(Text, nullable=False, index=True)
     content_hash = Column(String(64), nullable=False)
     content_text = Column(Text)
@@ -259,6 +267,28 @@ class PageSnapshot(Base):
 # Database Connection Management
 # ============================================================
 
+def _is_sqlite(url: str) -> bool:
+    return url.startswith("sqlite")
+
+
+def _make_async_engine(url: str):
+    """Create async engine appropriate for the DB type."""
+    if _is_sqlite(url):
+        from sqlalchemy.pool import StaticPool
+        return create_async_engine(
+            url,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    return create_async_engine(
+        url,
+        echo=False,
+        pool_size=20,
+        max_overflow=30,
+        pool_pre_ping=True,
+    )
+
+
 class DatabaseManager:
     """Manages database connections and sessions."""
 
@@ -266,8 +296,9 @@ class DatabaseManager:
         url = database_url or os.getenv('DATABASE_URL')
         if not url:
             raise RuntimeError(
-                "DATABASE_URL environment variable not set. "
-                "Example: postgresql+asyncpg://user:pass@localhost:5432/webreaper"
+                "DATABASE_URL environment variable not set.\n"
+                "  SQLite:     sqlite+aiosqlite:////home/user/.webreaper/webreaper.db\n"
+                "  PostgreSQL: postgresql+asyncpg://user:pass@localhost/webreaper"
             )
         self.database_url = url
         self.engine = None
@@ -276,13 +307,7 @@ class DatabaseManager:
         self.sync_session_maker = None
 
     async def init_async(self):
-        self.engine = create_async_engine(
-            self.database_url,
-            echo=False,
-            pool_size=20,
-            max_overflow=30,
-            pool_pre_ping=True,
-        )
+        self.engine = _make_async_engine(self.database_url)
         self.async_session_maker = async_sessionmaker(
             self.engine,
             class_=AsyncSession,
@@ -290,8 +315,11 @@ class DatabaseManager:
         )
 
     def init_sync(self):
-        sync_url = self.database_url.replace('postgresql+asyncpg', 'postgresql+psycopg2')
-        self.sync_engine = create_engine(sync_url, echo=False, pool_size=20, max_overflow=30)
+        if _is_sqlite(self.database_url):
+            sync_url = self.database_url.replace("sqlite+aiosqlite", "sqlite")
+        else:
+            sync_url = self.database_url.replace('postgresql+asyncpg', 'postgresql+psycopg2')
+        self.sync_engine = create_engine(sync_url, echo=False)
         self.sync_session_maker = sessionmaker(bind=self.sync_engine)
 
     async def create_tables(self):
@@ -342,9 +370,6 @@ class DatabaseManager:
 
     async def complete_crawl(self, crawl_id: str, stats: Dict):
         """Mark crawl as complete and update stats."""
-        from sqlalchemy import update
-        from sqlalchemy.dialects.postgresql import insert
-
         if not self.async_session_maker:
             await self.init_async()
 
@@ -356,7 +381,7 @@ class DatabaseManager:
                 text("""
                     UPDATE crawls SET
                         status = 'completed',
-                        completed_at = NOW(),
+                        completed_at = :now,
                         pages_crawled = :pages_crawled,
                         pages_failed = :pages_failed,
                         total_bytes = :total_size,
@@ -366,6 +391,7 @@ class DatabaseManager:
                 """),
                 {
                     "crawl_id": crawl_id,
+                    "now": _now().isoformat(),
                     "pages_crawled": stats.get("pages_crawled", 0),
                     "pages_failed": stats.get("pages_failed", 0),
                     "total_size": stats.get("total_size", 0),
@@ -454,12 +480,12 @@ class DatabaseManager:
         if not self.async_session_maker:
             await self.init_async()
         async with self.get_session() as session:
-            q = "SELECT id, title, summary, content, genre, source_feed, published_at FROM articles WHERE processed = FALSE"
+            q = "SELECT id, title, summary, content, genre, source_feed, published_at FROM articles WHERE processed = 0"
             params: Dict = {}
             if genre:
                 q += " AND genre = :genre"
                 params["genre"] = genre
-            q += " ORDER BY published_at DESC NULLS LAST LIMIT :limit"
+            q += " ORDER BY published_at DESC LIMIT :limit"
             params["limit"] = limit
             result = await session.execute(text(q), params)
             rows = result.fetchall()
@@ -471,10 +497,13 @@ class DatabaseManager:
             return
         if not self.async_session_maker:
             await self.init_async()
+        # Use parameterized placeholders for safety
+        placeholders = ",".join([f":id_{i}" for i in range(len(article_ids))])
+        params = {f"id_{i}": aid for i, aid in enumerate(article_ids)}
         async with self.get_session() as session:
-            id_list = ", ".join(f"'{aid}'" for aid in article_ids)
             await session.execute(
-                text(f"UPDATE articles SET processed = TRUE WHERE id IN ({id_list})")
+                text(f"UPDATE articles SET processed = 1 WHERE id IN ({placeholders})"),
+                params
             )
 
     async def get_crawl_stats(self) -> List[Dict]:

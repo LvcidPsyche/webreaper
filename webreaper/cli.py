@@ -549,6 +549,93 @@ def connect(provider: str, uri: str, api_key: str, model: str):
     asyncio.run(run())
 
 
+@cli.group()
+def license():
+    """Manage your WebReaper license."""
+    pass
+
+
+@license.command("status")
+def license_status():
+    """Show current license and monthly usage."""
+    from .license import get_license, get_tier, get_page_limit, TIER_PRICES
+    from .usage import get_summary
+
+    tier = get_tier()
+    lic = get_license()
+    limit = get_page_limit()
+    summary = get_summary(limit)
+
+    table = Table(title="WebReaper License")
+    table.add_column("Field", style="cyan")
+    table.add_column("Value", style="white")
+
+    if lic:
+        key_preview = lic["key"][:11] + "****"
+        table.add_row("Status", "[green]Active[/green]")
+        table.add_row("Tier", f"[bold]{tier}[/bold]")
+        table.add_row("Key", key_preview)
+        table.add_row("Installed", lic.get("installed_at", "")[:10])
+        if tier in TIER_PRICES:
+            table.add_row("Plan", TIER_PRICES[tier])
+    else:
+        table.add_row("Status", "[yellow]No license installed[/yellow]")
+        table.add_row("Tier", "FREE (CLI only, limited)")
+
+    table.add_row("Month", summary["month"])
+    table.add_row("Pages used", str(summary["pages_used"]))
+    if summary["pages_limit"]:
+        bar = "█" * int(summary["pct_used"] / 10) + "░" * (10 - int(summary["pct_used"] / 10))
+        table.add_row("Pages limit", f"{summary['pages_limit']}/month")
+        table.add_row("Remaining", str(summary["pages_remaining"]))
+        color = "red" if summary["pct_used"] > 80 else "yellow" if summary["pct_used"] > 50 else "green"
+        table.add_row("Usage", f"[{color}]{bar} {summary['pct_used']}%[/{color}]")
+    else:
+        table.add_row("Pages limit", "[green]Unlimited[/green]")
+
+    console.print(table)
+
+
+@license.command("activate")
+@click.argument("key")
+def license_activate(key: str):
+    """Install a license key (e.g. WR-PRO-ABCD1234-EFGH5678)."""
+    from .license import install_license
+
+    result = install_license(key)
+    if result["valid"]:
+        console.print(f"[green]License activated![/green] Tier: [bold]{result['tier']}[/bold]")
+    else:
+        console.print(f"[red]Invalid key:[/red] {result['error']}")
+
+
+@license.command("deactivate")
+def license_deactivate():
+    """Remove the installed license."""
+    from .license import revoke_license, get_license
+
+    if not get_license():
+        console.print("[yellow]No license installed.[/yellow]")
+        return
+    revoke_license()
+    console.print("[green]License removed.[/green]")
+
+
+@license.command("generate")
+@click.argument("tier", type=click.Choice(["lite", "pro"], case_sensitive=False))
+def license_generate(tier: str):
+    """[Admin] Generate a license key. Requires WEBREAPER_LICENSE_SECRET env var."""
+    import os
+    from .license import generate_key, _DEV_SECRET, _secret
+
+    if _secret() == _DEV_SECRET:
+        console.print("[yellow]Warning: Using dev secret. Set WEBREAPER_LICENSE_SECRET for production keys.[/yellow]")
+
+    key = generate_key(tier)
+    console.print(f"[green]Generated {tier.upper()} key:[/green]")
+    console.print(f"[bold cyan]{key}[/bold cyan]")
+
+
 def main():
     cli()
 

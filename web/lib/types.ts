@@ -113,3 +113,16 @@ export interface TopologyData {
   nodes: TopologyNode[];
   links: TopologyLink[];
 }
+
+export interface LicenseStatus {
+  installed: boolean;
+  tier: 'FREE' | 'LITE' | 'PRO';
+  key_preview: string | null;
+  installed_at: string | null;
+  pages_limit: number | null;
+  pages_used: number;
+  pages_remaining: number | null;
+  pct_used: number;
+  month: string;
+  tier_description: string;
+}
