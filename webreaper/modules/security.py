@@ -1,9 +1,10 @@
 """Security testing module - Burp Suite style features."""
 
+import asyncio
 import re
-import json
-from typing import List, Dict, Any, Optional, Tuple
-from urllib.parse import urlencode, parse_qs, urlparse
+import time
+from typing import List, Dict, Any, Optional
+from urllib.parse import urlencode, parse_qs, urlparse, urlunparse
 
 
 class SecurityScanner:
@@ -324,6 +325,201 @@ class SecurityScanner:
                         "remediation": "Validate and allowlist URL destinations server-side",
                     })
                     break
+        return findings
+
+    # ── DB error signatures for SQLi error-based detection ──────
+
+    _SQLI_ERROR_PATTERNS = [
+        r"you have an error in your sql syntax",          # MySQL
+        r"warning: mysql_",                               # MySQL PHP
+        r"unclosed quotation mark after the character",   # MSSQL
+        r"quoted string not properly terminated",         # Oracle
+        r"pg_query\(\): query failed",                    # PostgreSQL PHP
+        r"ERROR:\s+syntax error at or near",              # PostgreSQL
+        r"ORA-\d{4,5}:",                                  # Oracle ORA errors
+        r"microsoft ole db provider for sql server",      # MSSQL via OLE
+        r"syntax error or access violation",              # generic
+        r"invalid query",
+        r"sql syntax.*mysql",
+        r"sqlite.*error",
+    ]
+
+    _CMDI_MARKERS = [
+        "root:x:0:0:",   # /etc/passwd content
+        "uid=",           # id command output
+        "daemon:",        # passwd file line
+    ]
+
+    async def active_scan(
+        self,
+        url: str,
+        forms: List[Dict],
+        session,
+        aggressive: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Active scan: fire payloads against the target. Requires HTTP session.
+
+        WARNING: Only run this against systems you are authorized to test.
+        Gate aggressive checks (SQLi, CMDi) behind aggressive=True.
+        """
+        findings = []
+        if not aggressive:
+            return findings
+
+        print(
+            f"[ACTIVE SCAN] Firing SQL injection and command injection payloads against {url}. "
+            "Only use against authorized targets."
+        )
+
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+
+        sqli_findings = await self._check_sql_injection(url, params, session)
+        findings.extend(sqli_findings)
+
+        cmdi_findings = await self._check_command_injection(url, params, session)
+        findings.extend(cmdi_findings)
+
+        for form in forms:
+            form_sqli = await self._check_form_sql_injection(url, form, session)
+            findings.extend(form_sqli)
+
+        self.findings.extend(findings)
+        return findings
+
+    async def _check_sql_injection(
+        self, url: str, params: Dict[str, List[str]], session
+    ) -> List[Dict[str, Any]]:
+        """Fire SQLi payloads into URL query parameters, detect via DB error signatures."""
+        findings = []
+        parsed = urlparse(url)
+
+        for param_name, original_values in params.items():
+            for payload in self.sqli_payloads:
+                test_params = {k: v[0] for k, v in params.items()}
+                test_params[param_name] = payload
+                query_string = urlencode(test_params)
+                test_url = urlunparse(parsed._replace(query=query_string))
+
+                try:
+                    resp = await session.get(test_url, timeout=10)
+                    body = getattr(resp, "text", None) or ""
+                    if asyncio.iscoroutine(body):
+                        body = await body
+                    body_lower = body.lower()
+
+                    for pattern in self._SQLI_ERROR_PATTERNS:
+                        if re.search(pattern, body_lower):
+                            findings.append({
+                                "type": "SQL Injection",
+                                "severity": "Critical",
+                                "parameter": param_name,
+                                "payload": payload,
+                                "evidence": f"DB error pattern matched: {pattern[:50]}",
+                                "url": test_url,
+                                "remediation": "Use parameterized queries / prepared statements",
+                            })
+                            break  # One finding per param per payload is enough
+                except Exception:
+                    pass  # Network errors during active scan are expected; continue
+
+        return findings
+
+    async def _check_form_sql_injection(
+        self, url: str, form: Dict, session
+    ) -> List[Dict[str, Any]]:
+        """Fire SQLi payloads into discovered form inputs."""
+        findings = []
+        action = form.get("action", url)
+        method = form.get("method", "GET").upper()
+
+        text_inputs = [
+            inp for inp in form.get("inputs", [])
+            if inp.get("type", "text") in ("text", "search", "email", "url", "number", "")
+        ]
+        if not text_inputs:
+            return findings
+
+        for payload in self.sqli_payloads[:4]:  # Limit to 4 payloads per form to stay polite
+            data = {inp["name"]: payload for inp in text_inputs if inp.get("name")}
+            if not data:
+                continue
+            try:
+                if method == "POST":
+                    resp = await session.post(action, data=data, timeout=10)
+                else:
+                    resp = await session.get(action, params=data, timeout=10)
+                body = getattr(resp, "text", None) or ""
+                if asyncio.iscoroutine(body):
+                    body = await body
+                body_lower = body.lower()
+                for pattern in self._SQLI_ERROR_PATTERNS:
+                    if re.search(pattern, body_lower):
+                        findings.append({
+                            "type": "SQL Injection (Form)",
+                            "severity": "Critical",
+                            "form_action": action,
+                            "payload": payload,
+                            "evidence": f"DB error pattern after form submit: {pattern[:50]}",
+                            "url": url,
+                            "remediation": "Use parameterized queries / prepared statements",
+                        })
+                        return findings  # One finding per form is enough
+            except Exception:
+                pass
+
+        return findings
+
+    async def _check_command_injection(
+        self, url: str, params: Dict[str, List[str]], session
+    ) -> List[Dict[str, Any]]:
+        """Fire CMDi payloads, detect via output markers in response."""
+        findings = []
+        parsed = urlparse(url)
+
+        for param_name in params:
+            for payload in self.command_payloads:
+                test_params = {k: v[0] for k, v in params.items()}
+                test_params[param_name] = payload
+                query_string = urlencode(test_params)
+                test_url = urlunparse(parsed._replace(query=query_string))
+
+                try:
+                    t0 = time.monotonic()
+                    resp = await session.get(test_url, timeout=15)
+                    elapsed = time.monotonic() - t0
+                    body = getattr(resp, "text", None) or ""
+                    if asyncio.iscoroutine(body):
+                        body = await body
+
+                    for marker in self._CMDI_MARKERS:
+                        if marker in body:
+                            findings.append({
+                                "type": "Command Injection",
+                                "severity": "Critical",
+                                "parameter": param_name,
+                                "payload": payload,
+                                "evidence": f"Output marker found in response: {marker!r}",
+                                "url": test_url,
+                                "remediation": "Never pass user input to shell commands",
+                            })
+                            return findings  # Stop on first confirmed hit
+
+                    # Timing check for blind injection (SLEEP-based payloads)
+                    if "SLEEP" in payload.upper() and elapsed > 4.5:
+                        findings.append({
+                            "type": "Command Injection (Timing)",
+                            "severity": "High",
+                            "confidence": "medium",
+                            "parameter": param_name,
+                            "payload": payload,
+                            "evidence": f"Response took {elapsed:.1f}s (expected <4.5s)",
+                            "url": test_url,
+                            "remediation": "Never pass user input to shell commands",
+                        })
+                except Exception:
+                    pass
+
         return findings
 
     def fingerprint_tech(self, url: str, headers: Dict[str, str], body: str) -> Dict[str, List[str]]:

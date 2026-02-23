@@ -1,8 +1,14 @@
-"""Ring buffer for real-time log streaming."""
+"""Ring buffer for real-time log streaming.
 
+Entries are also forwarded to structlog so they persist to disk.
+"""
+
+import logging
 import time
 from collections import deque
 from threading import Lock
+
+_logger = logging.getLogger("webreaper.log_buffer")
 
 
 class LogBuffer:
@@ -21,6 +27,10 @@ class LogBuffer:
                 "source": source,
             })
             self._index += 1
+
+        # Forward to structured log so entries survive server restarts
+        log_fn = getattr(_logger, level.lower(), _logger.info)
+        log_fn("[%s] %s", source, message)
 
     def get_since(self, index: int) -> list[dict]:
         with self._lock:

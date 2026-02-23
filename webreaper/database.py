@@ -295,11 +295,9 @@ class DatabaseManager:
     def __init__(self, database_url: Optional[str] = None):
         url = database_url or os.getenv('DATABASE_URL')
         if not url:
-            raise RuntimeError(
-                "DATABASE_URL environment variable not set.\n"
-                "  SQLite:     sqlite+aiosqlite:////home/user/.webreaper/webreaper.db\n"
-                "  PostgreSQL: postgresql+asyncpg://user:pass@localhost/webreaper"
-            )
+            default_path = os.path.expanduser("~/.webreaper/data.db")
+            os.makedirs(os.path.dirname(default_path), exist_ok=True)
+            url = f"sqlite+aiosqlite:///{default_path}"
         self.database_url = url
         self.engine = None
         self.async_session_maker = None
@@ -557,8 +555,6 @@ class DatabaseManager:
             return dict(row._mapping) if row else None
 
 
-def get_db_manager() -> Optional["DatabaseManager"]:
-    """Return a DatabaseManager if DATABASE_URL is configured, else None."""
-    if os.getenv("DATABASE_URL"):
-        return DatabaseManager()
-    return None
+def get_db_manager() -> "DatabaseManager":
+    """Return a DatabaseManager, defaulting to SQLite if DATABASE_URL is unset."""
+    return DatabaseManager()

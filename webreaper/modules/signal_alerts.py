@@ -19,6 +19,9 @@ import httpx
 
 logger = logging.getLogger("webreaper.signal")
 
+_MAX_HISTORY = 1000
+_RETRY_DELAYS = (1.0, 2.0, 4.0)  # exponential backoff: 3 attempts
+
 
 class DeliveryChannel(Enum):
     SLACK = "slack"
@@ -91,15 +94,29 @@ class SignalAlerts:
                     channel=rule.delivery.get("channel", ""),
                 )
 
-                try:
-                    await self._deliver(alert, rule.delivery)
+                delivered = False
+                for delay in (None, *_RETRY_DELAYS):
+                    if delay is not None:
+                        await asyncio.sleep(delay)
+                    try:
+                        await self._deliver(alert, rule.delivery)
+                        delivered = True
+                        break
+                    except Exception as e:
+                        logger.warning("Alert delivery attempt failed for %s: %s", rule.name, e)
+
+                if delivered:
                     alert.delivered = True
                     alert.delivered_at = datetime.utcnow().isoformat()
-                except Exception as e:
-                    logger.error(f"Alert delivery failed for {rule.name}: {e}")
+                else:
+                    logger.error("All delivery attempts failed for rule %s", rule.name)
 
                 rule.last_triggered = datetime.utcnow()
                 rule.trigger_count += 1
+
+                # Cap history to avoid unbounded memory growth
+                if len(self._history) >= _MAX_HISTORY:
+                    self._history = self._history[-(int(_MAX_HISTORY * 0.9)):]
                 self._history.append(alert)
 
     def _matches(self, condition: dict, data: dict) -> bool:
@@ -180,10 +197,13 @@ class SignalAlerts:
         msg["To"] = to_email
 
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: self._smtp_send(smtp_host, smtp_port, smtp_user, smtp_pass, msg))
+        await asyncio.wait_for(
+            loop.run_in_executor(None, lambda: self._smtp_send(smtp_host, smtp_port, smtp_user, smtp_pass, msg)),
+            timeout=30.0,
+        )
 
     def _smtp_send(self, host, port, user, password, msg):
-        with smtplib.SMTP(host, port) as server:
+        with smtplib.SMTP(host, port, timeout=25) as server:
             server.starttls()
             server.login(user, password)
             server.send_message(msg)

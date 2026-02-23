@@ -1,7 +1,6 @@
 """WebReaper API Server — FastAPI backend for dashboard and agent gateway."""
 
 import asyncio
-import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -10,12 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from webreaper.database import get_db_manager
+from webreaper.logging_config import configure_logging, get_logger
 from server.routes import jobs, results, security, stream, chat, agents, workstation, license
 from server.services.log_buffer import LogBuffer
 from server.services.metrics import MetricsService
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("webreaper.server")
+configure_logging()
+logger = get_logger("webreaper.server")
 
 log_buffer = LogBuffer(max_size=1000)
 metrics_service = MetricsService()

@@ -12,6 +12,8 @@ from bs4 import BeautifulSoup
 from rich.console import Console
 from rich.progress import Progress, TaskID
 
+import logging
+
 from .config import Config
 from .fetcher import StealthFetcher
 from .frontier import URLFrontier
@@ -19,6 +21,7 @@ from .modules.robots import RobotsCache
 
 
 console = Console()
+logger = logging.getLogger("webreaper.crawler")
 
 
 @dataclass
@@ -81,7 +84,7 @@ class Crawler:
                     genre=getattr(self.config, "genre", None),
                 )
             except Exception as e:
-                console.print(f"[yellow]DB: failed to create crawl record: {e}[/yellow]")
+                logger.error("DB: failed to create crawl record: %s", e)
 
         for url in start_urls:
             await self.frontier.add(url, depth=0, priority=0)
@@ -107,7 +110,7 @@ class Crawler:
             try:
                 await self.db_manager.complete_crawl(self._crawl_id, self.stats)
             except Exception as e:
-                console.print(f"[yellow]DB: failed to complete crawl record: {e}[/yellow]")
+                logger.error("DB: failed to complete crawl record: %s", e)
 
         console.print(f"\n[green]Crawl complete![/green]")
         console.print(f"Pages crawled: {self.stats['pages_crawled']}")
@@ -149,14 +152,15 @@ class Crawler:
                 result = await self._crawl_page(fetcher, task.url, task.depth)
 
                 if result:
-                    self.results.append(result)
                     self.stats["pages_crawled"] += 1
 
                     await self._add_links(result, task.depth)
 
-                    # Persist to DB
+                    # Persist to DB; only accumulate in-memory when no DB (avoids RAM growth)
                     if self.db_manager and self._crawl_id:
                         await self._save_to_db(result)
+                    else:
+                        self.results.append(result)
 
                     if callback:
                         callback(result)
@@ -251,7 +255,7 @@ class Crawler:
                     is_external=True,
                 )
         except Exception as e:
-            console.print(f"[yellow]DB save error: {e}[/yellow]")
+            logger.error("DB save error for %s: %s", result.url, e)
 
     async def _add_links(self, result: CrawlResult, current_depth: int):
         if current_depth >= self.config.crawler.max_depth:

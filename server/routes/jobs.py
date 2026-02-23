@@ -52,6 +52,9 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
             remaining = page_limit - used
             effective_max = min(req.max_pages, remaining)
 
+    # Hard cap regardless of license or user request
+    effective_max = min(effective_max, 50_000)
+
     job_id = str(uuid.uuid4())[:8]
     config = Config()
     config.crawler.max_depth = req.depth
@@ -69,9 +72,9 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
 
     async def run_job():
         try:
-            results = await crawler.crawl(req.urls, callback=None)
-            # Track usage after crawl completes
-            add_pages(len(results))
+            await crawler.crawl(req.urls, callback=None)
+            # stats["pages_crawled"] is authoritative — results list may be empty when DB is used
+            add_pages(crawler.stats["pages_crawled"])
         except Exception as e:
             request.app.state.log_buffer.add("error", f"Job {job_id} failed: {e}")
         finally:

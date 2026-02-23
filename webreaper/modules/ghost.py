@@ -196,6 +196,10 @@ class GhostProtocol:
             "identity": identity.name,
         })
 
+    def get_proxy_stats(self, pool: "ProxyPool") -> list:
+        """Return proxy health stats from a ProxyPool (for API/dashboard)."""
+        return pool.get_stats()
+
     def get_strategy(self, domain: str) -> dict:
         """Get recommended strategy for a domain based on past blocks."""
         blocks = [b for b in self._block_log if b["domain"] == domain]

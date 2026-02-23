@@ -2,14 +2,17 @@
 
 import asyncio
 import logging
+import os
 from typing import AsyncIterator, Optional
 
 from .adapters.base import AgentAdapter
 from .tools import TOOL_MANIFEST, execute_tool
-from .permissions import PermissionLevel, check_permission
+from .permissions import PermissionLevel, check_permission, log_audit_event
 from .registry import ProviderRegistry
 
 logger = logging.getLogger("webreaper.gateway")
+
+_APPROVAL_TIMEOUT = int(os.getenv("WEBREAPER_APPROVAL_TIMEOUT_SECS", "60"))
 
 _instance: Optional["AgentGateway"] = None
 
@@ -22,7 +25,6 @@ class AgentGateway:
         self._registry = ProviderRegistry()
         self._pending_approvals: dict[str, asyncio.Event] = {}
         self._approval_results: dict[str, bool] = {}
-        self._audit_log: list[dict] = []
 
     @classmethod
     def instance(cls) -> "AgentGateway":
@@ -66,6 +68,7 @@ class AgentGateway:
                 permission = check_permission(tool_name)
 
                 if permission == PermissionLevel.BLOCKED:
+                    log_audit_event(tool_name, "execute", "blocked", params=chunk.get("params"))
                     yield {"type": "tool_denied", "tool": tool_name, "reason": "Blocked by policy"}
                     continue
 
@@ -78,19 +81,17 @@ class AgentGateway:
                     }
                     approved = await self._wait_for_approval(chunk["id"])
                     if not approved:
+                        log_audit_event(tool_name, "execute", "denied", params=chunk.get("params"))
                         yield {"type": "tool_denied", "tool": tool_name, "reason": "User denied"}
                         continue
 
                 yield {"type": "tool_executing", "tool": tool_name, "params": chunk["params"]}
                 try:
                     result = await execute_tool(tool_name, chunk["params"])
-                    self._audit_log.append({
-                        "tool": tool_name,
-                        "params": chunk["params"],
-                        "result": "success",
-                    })
+                    log_audit_event(tool_name, "execute", "success", params=chunk.get("params"))
                     yield {"type": "tool_result", "tool": tool_name, "result": result, "id": chunk.get("id")}
                 except Exception as e:
+                    log_audit_event(tool_name, "execute", "error", params=chunk.get("params"))
                     yield {"type": "tool_error", "tool": tool_name, "error": str(e)}
             else:
                 yield chunk
@@ -105,7 +106,7 @@ class AgentGateway:
         if tool_id in self._pending_approvals:
             self._pending_approvals[tool_id].set()
 
-    async def _wait_for_approval(self, tool_id: str, timeout: float = 60) -> bool:
+    async def _wait_for_approval(self, tool_id: str, timeout: float = _APPROVAL_TIMEOUT) -> bool:
         event = asyncio.Event()
         self._pending_approvals[tool_id] = event
         try:

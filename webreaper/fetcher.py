@@ -64,9 +64,10 @@ class StealthFetcher:
         "edge120", "edge124",
     ]
 
-    def __init__(self, config: StealthConfig, rate_limit: float = 0.0):
+    def __init__(self, config: StealthConfig, rate_limit: float = 0.0, proxy_pool=None):
         self.config = config
         self.rate_limit = rate_limit
+        self.proxy_pool = proxy_pool  # Optional ProxyPool for health reporting
         self.ua = UserAgent(fallback="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         self.session = None
         self._curl_session: Optional["CurlSession"] = None
@@ -162,6 +163,9 @@ class StealthFetcher:
         # Per-request header rotation (no session recreation)
         headers = self._request_headers()
 
+        proxy_url = self.config.tor_proxy if self.config.tor_enabled else "direct"
+        t0 = time.monotonic()
+
         try:
             if self._curl_session:
                 # curl_cffi path — TLS fingerprint impersonation active
@@ -172,6 +176,9 @@ class StealthFetcher:
                     impersonate=self._current_impersonation,
                 )
                 self.request_count += 1
+                latency_ms = (time.monotonic() - t0) * 1000
+                if self.proxy_pool:
+                    self.proxy_pool.report_success(proxy_url, latency_ms)
                 return response.status_code, dict(response.headers), response.text
             else:
                 # aiohttp path — basic mode
@@ -193,11 +200,18 @@ class StealthFetcher:
                     status = response.status
                     resp_headers = dict(response.headers)
                     text = await response.text(errors="replace")
+                    latency_ms = (time.monotonic() - t0) * 1000
+                    if self.proxy_pool:
+                        self.proxy_pool.report_success(proxy_url, latency_ms)
                     return status, resp_headers, text
 
         except asyncio.TimeoutError:
+            if self.proxy_pool:
+                self.proxy_pool.report_failure(proxy_url)
             return 0, {}, ""
         except (CurlError, aiohttp.ClientError, Exception) as e:
+            if self.proxy_pool:
+                self.proxy_pool.report_failure(proxy_url)
             return -1, {}, str(e)
 
     async def fetch_with_retry(self, url: str, max_retries: int = 3, allow_redirects: bool = True) -> Tuple[int, Dict[str, Any], str]:
