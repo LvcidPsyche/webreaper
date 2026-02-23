@@ -145,13 +145,16 @@ async def test_provider(provider_id: str):
 
         import httpx
         if ptype == "anthropic":
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                    json={"model": model or "claude-haiku-4-5-20251001", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]},
-                )
-                ok = r.status_code in (200, 400)  # 400 = auth ok but bad params
+            if not api_key:
+                ok = False
+            else:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                        json={"model": model, "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]},
+                    )
+                    ok = r.status_code in (200, 400)  # 400 = auth ok but bad params
         elif ptype == "openai":
             url = base_url.rstrip("/") or "https://api.openai.com/v1"
             async with httpx.AsyncClient(timeout=10) as client:

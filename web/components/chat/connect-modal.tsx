@@ -18,10 +18,10 @@ interface ConnectionConfig {
 }
 
 const providerDefaults: Record<string, { url: string; model: string }> = {
-  openai: { url: 'https://api.openai.com/v1', model: 'gpt-4o' },
-  anthropic: { url: 'https://api.anthropic.com', model: 'claude-sonnet-4-6' },
-  ollama: { url: 'http://localhost:11434', model: 'llama3' },
-  openclaw: { url: 'http://76.13.114.80', model: 'claude-sonnet-4-6' },
+  openai: { url: 'https://api.openai.com/v1', model: '' },
+  anthropic: { url: 'https://api.anthropic.com', model: '' },
+  ollama: { url: 'http://localhost:11434', model: '' },
+  openclaw: { url: 'http://76.13.114.80', model: '' },
   custom: { url: '', model: '' },
 };
 
