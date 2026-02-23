@@ -33,12 +33,13 @@ async def get_pages(
             {
                 "id": str(p.id),
                 "url": p.url,
-                "status_code": p.status_code,
-                "title": p.title,
-                "word_count": p.word_count,
-                "response_time_ms": p.response_time_ms,
-                "depth": p.depth,
-                "domain": p.domain,
+                "status_code": p.status_code or 0,
+                "content_type": p.content_type or "",
+                "title": p.title or "",
+                "response_time_ms": p.response_time_ms or 0,
+                "links_found": p.links_count or 0,
+                "crawl_job_id": p.crawl_id or "",
+                "crawled_at": p.scraped_at.isoformat() if p.scraped_at else "",
             }
             for p in pages
         ]

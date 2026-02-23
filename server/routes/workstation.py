@@ -2,7 +2,7 @@
 
 import json
 import uuid
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Query
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -15,38 +15,73 @@ class PinRequest(BaseModel):
     position_y: float = 0
 
 
+def _page_row(p) -> dict:
+    return {
+        "id": str(p.id),
+        "url": p.url,
+        "status_code": p.status_code or 0,
+        "content_type": p.content_type or "",
+        "title": p.title or "",
+        "response_time_ms": p.response_time_ms or 0,
+        "links_found": p.links_count or 0,
+        "crawl_job_id": p.crawl_id or "",
+        "crawled_at": p.scraped_at.isoformat() if p.scraped_at else "",
+    }
+
+
 @router.get("/briefs")
 async def get_briefs(request: Request):
-    """Get recent intelligence briefs from missions."""
+    """Get recent intelligence briefs — returns IntelligenceBrief[]."""
     db = request.app.state.db
     if not db:
-        return {"briefs": []}
+        return []
 
     try:
         async with db.get_session() as session:
             from sqlalchemy import text
             result = await session.execute(text("""
-                SELECT id, type, brief, status, results, created_at, completed_at
+                SELECT id, type, brief, status, results, created_at
                 FROM missions
                 ORDER BY created_at DESC
                 LIMIT 20
             """))
             rows = result.fetchall()
-            return {
-                "briefs": [
-                    {
-                        "id": str(r.id),
-                        "type": r.type,
-                        "brief": r.brief,
-                        "status": r.status,
-                        "results": r.results,
-                        "created_at": str(r.created_at),
-                    }
-                    for r in rows
-                ]
-            }
+            return [
+                {
+                    "id": str(r.id),
+                    "title": (r.brief or "")[:80],
+                    "summary": r.brief or "",
+                    "content": json.dumps(r.results) if r.results else "",
+                    "sources": [],
+                    "tags": [r.type] if r.type else [],
+                    "created_at": str(r.created_at),
+                }
+                for r in rows
+            ]
     except Exception:
-        return {"briefs": []}
+        return []
+
+
+@router.get("/results")
+async def get_results(
+    request: Request,
+    limit: int = Query(default=50, le=200),
+):
+    """Recent crawl results for the workstation data table."""
+    db = request.app.state.db
+    if not db:
+        return []
+
+    try:
+        async with db.get_session() as session:
+            from sqlalchemy import select
+            from webreaper.database import Page
+            query = select(Page).order_by(Page.scraped_at.desc()).limit(limit)
+            result = await session.execute(query)
+            pages = result.scalars().all()
+            return [_page_row(p) for p in pages]
+    except Exception:
+        return []
 
 
 @router.get("/canvas")

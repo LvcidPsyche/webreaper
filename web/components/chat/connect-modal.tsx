@@ -17,28 +17,36 @@ interface ConnectionConfig {
   model: string;
 }
 
-const providerDefaults: Record<string, { url: string; model: string }> = {
-  openai: { url: 'https://api.openai.com/v1', model: '' },
-  anthropic: { url: 'https://api.anthropic.com', model: '' },
-  ollama: { url: 'http://localhost:11434', model: '' },
-  openclaw: { url: 'http://76.13.114.80', model: '' },
-  custom: { url: '', model: '' },
+const providerDefaults: Record<string, { url: string; model: string; keyPlaceholder: string; modelRequired: boolean }> = {
+  openclaw:  { url: 'http://localhost',          model: '',                        keyPlaceholder: 'Gateway token (optional)',    modelRequired: false },
+  anthropic: { url: 'https://api.anthropic.com', model: 'claude-sonnet-4-6',       keyPlaceholder: 'sk-ant-...',                  modelRequired: true  },
+  openai:    { url: 'https://api.openai.com/v1', model: 'gpt-4o',                  keyPlaceholder: 'sk-...',                      modelRequired: true  },
+  ollama:    { url: 'http://localhost:11434',    model: 'llama3.2',                keyPlaceholder: 'Not required for Ollama',     modelRequired: true  },
+  custom:    { url: '',                          model: '',                        keyPlaceholder: 'API key',                     modelRequired: false },
 };
 
 export function ConnectModal({ open, onClose, onConnect }: ConnectModalProps) {
   const [config, setConfig] = useState<ConnectionConfig>({
-    name: '',
-    type: 'anthropic',
-    base_url: providerDefaults.anthropic.url,
+    name: 'OpenClaw',
+    type: 'openclaw',
+    base_url: providerDefaults.openclaw.url,
     api_key: '',
-    model: providerDefaults.anthropic.model,
+    model: providerDefaults.openclaw.model,
   });
 
   if (!open) return null;
 
+  const defaults = providerDefaults[config.type] ?? providerDefaults.custom;
+
   const handleTypeChange = (type: string) => {
-    const defaults = providerDefaults[type] || providerDefaults.custom;
-    setConfig((prev) => ({ ...prev, type, base_url: defaults.url, model: defaults.model }));
+    const d = providerDefaults[type] ?? providerDefaults.custom;
+    setConfig((prev) => ({
+      ...prev,
+      type,
+      base_url: d.url,
+      model: d.model,
+      name: prev.name || type,
+    }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -62,17 +70,6 @@ export function ConnectModal({ open, onClose, onConnect }: ConnectModalProps) {
 
         <form onSubmit={handleSubmit} className="p-4 space-y-3">
           <label className="block">
-            <span className="text-xs font-mono text-reaper-muted">Name</span>
-            <input
-              value={config.name}
-              onChange={(e) => setConfig((p) => ({ ...p, name: e.target.value }))}
-              className="mt-1 w-full bg-reaper-bg border border-reaper-border rounded px-3 py-1.5 text-sm font-mono text-white focus:border-reaper-accent outline-none"
-              placeholder="My Agent"
-              required
-            />
-          </label>
-
-          <label className="block">
             <span className="text-xs font-mono text-reaper-muted">Provider</span>
             <select
               value={config.type}
@@ -88,6 +85,17 @@ export function ConnectModal({ open, onClose, onConnect }: ConnectModalProps) {
           </label>
 
           <label className="block">
+            <span className="text-xs font-mono text-reaper-muted">Name</span>
+            <input
+              value={config.name}
+              onChange={(e) => setConfig((p) => ({ ...p, name: e.target.value }))}
+              className="mt-1 w-full bg-reaper-bg border border-reaper-border rounded px-3 py-1.5 text-sm font-mono text-white focus:border-reaper-accent outline-none"
+              placeholder="My Agent"
+              required
+            />
+          </label>
+
+          <label className="block">
             <span className="text-xs font-mono text-reaper-muted">Base URL</span>
             <input
               value={config.base_url}
@@ -98,31 +106,36 @@ export function ConnectModal({ open, onClose, onConnect }: ConnectModalProps) {
           </label>
 
           <label className="block">
-            <span className="text-xs font-mono text-reaper-muted">API Key</span>
+            <span className="text-xs font-mono text-reaper-muted">
+              {config.type === 'openclaw' ? 'Gateway Token' : 'API Key'}
+            </span>
             <input
               type="password"
               value={config.api_key}
               onChange={(e) => setConfig((p) => ({ ...p, api_key: e.target.value }))}
               className="mt-1 w-full bg-reaper-bg border border-reaper-border rounded px-3 py-1.5 text-sm font-mono text-white focus:border-reaper-accent outline-none"
-              placeholder="sk-..."
+              placeholder={defaults.keyPlaceholder}
             />
           </label>
 
-          <label className="block">
-            <span className="text-xs font-mono text-reaper-muted">Model</span>
-            <input
-              value={config.model}
-              onChange={(e) => setConfig((p) => ({ ...p, model: e.target.value }))}
-              className="mt-1 w-full bg-reaper-bg border border-reaper-border rounded px-3 py-1.5 text-sm font-mono text-white focus:border-reaper-accent outline-none"
-              required
-            />
-          </label>
+          {defaults.modelRequired && (
+            <label className="block">
+              <span className="text-xs font-mono text-reaper-muted">Model</span>
+              <input
+                value={config.model}
+                onChange={(e) => setConfig((p) => ({ ...p, model: e.target.value }))}
+                className="mt-1 w-full bg-reaper-bg border border-reaper-border rounded px-3 py-1.5 text-sm font-mono text-white focus:border-reaper-accent outline-none"
+                placeholder={defaults.model || 'model-name'}
+                required
+              />
+            </label>
+          )}
 
           <button
             type="submit"
             className="w-full mt-2 bg-reaper-accent/10 text-reaper-accent border border-reaper-accent/30 rounded py-2 text-sm font-mono hover:bg-reaper-accent/20 transition-colors"
           >
-            Connect
+            Save & Connect
           </button>
         </form>
       </div>

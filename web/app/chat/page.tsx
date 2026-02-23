@@ -31,9 +31,12 @@ export default function ChatPage() {
     model: string;
   }) => {
     try {
-      await api.post('/api/agents', config);
+      const provider = await api.post<{ id: string }>('/api/agents', config);
+      if (provider?.id) {
+        selectProvider(provider.id);
+      }
     } catch {
-      // Connection errors surface in the agent status
+      // errors surface via the agent status indicator
     }
   };
 

@@ -96,6 +96,13 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
         finally:
             request.app.state.active_jobs.pop(job_id, None)
 
+    crawler._meta = {
+        "url": req.urls[0] if req.urls else "",
+        "depth": req.depth,
+        "concurrency": req.concurrency,
+        "stealth": req.stealth,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
     request.app.state.active_jobs[job_id] = crawler
     asyncio.create_task(run_job())
 
@@ -110,19 +117,20 @@ async def list_jobs(request: Request):
 
     for jid, crawler in request.app.state.active_jobs.items():
         stats = getattr(crawler, 'stats', {}) or {}
+        meta = getattr(crawler, '_meta', {}) or {}
         result.append({
             "id": jid,
-            "url": "",
+            "url": meta.get("url", ""),
             "status": "running",
-            "depth": 3,
-            "concurrency": 10,
-            "stealth": False,
+            "depth": meta.get("depth", 3),
+            "concurrency": meta.get("concurrency", 10),
+            "stealth": meta.get("stealth", False),
             "pages_crawled": stats.get("pages_crawled", 0),
             "pages_total": None,
-            "started_at": None,
+            "started_at": meta.get("started_at"),
             "completed_at": None,
             "error": None,
-            "created_at": now,
+            "created_at": meta.get("started_at", now),
         })
 
     db = request.app.state.db
