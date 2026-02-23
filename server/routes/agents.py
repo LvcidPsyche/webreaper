@@ -50,6 +50,7 @@ def _provider_response(p: dict) -> dict:
         "model": p.get("model", ""),
         "status": p.get("status", "disconnected"),
         "last_checked": p.get("last_checked"),
+        "active": p.get("active", False),
     }
 
 
@@ -126,6 +127,64 @@ async def delete_provider(provider_id: str):
         raise HTTPException(status_code=404, detail="Provider not found")
     _save_providers(updated)
     return {"status": "deleted", "id": provider_id}
+
+
+_TYPE_TO_ADAPTER = {
+    "anthropic": "claude_api",
+    "openai": "openai_api",
+    "custom": "custom_ws",
+    "openclaw": "openclaw",
+    "ollama": "ollama",
+}
+
+
+@router.get("/gateway-status")
+async def gateway_status():
+    """Return current gateway connection state."""
+    from webreaper.gateway.gateway import AgentGateway
+    gateway = AgentGateway.instance()
+    return {"connected": gateway.is_connected()}
+
+
+@router.post("/{provider_id}/activate")
+async def activate_provider(provider_id: str):
+    """Connect the agent gateway to the given provider."""
+    providers = _load_providers()
+    provider = next((p for p in providers if p["id"] == provider_id), None)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    adapter_key = _TYPE_TO_ADAPTER.get(provider["type"], provider["type"])
+    base_url = provider.get("base_url", "").rstrip("/")
+    api_key = provider.get("api_key", "")
+
+    if provider["type"] == "openclaw":
+        # Translate HTTP URL to WebSocket URI and rename api_key → token
+        ws_uri = base_url.replace("https://", "wss://").replace("http://", "ws://")
+        # Add default port if none specified
+        host_part = ws_uri.split("//")[-1]
+        if ":" not in host_part:
+            ws_uri += ":18789"
+        config: dict = {"uri": ws_uri, "token": api_key}
+    else:
+        config = {"api_key": api_key, "base_url": base_url, "model": provider.get("model", "")}
+
+    from webreaper.gateway.gateway import AgentGateway
+    gateway = AgentGateway.instance()
+    success = await gateway.connect(adapter_key, config)
+    if not success:
+        raise HTTPException(status_code=502, detail="Connection failed — check provider config")
+
+    # Mark this provider active, clear others
+    now = datetime.now(timezone.utc).isoformat()
+    for p in providers:
+        p.pop("active", None)
+    provider["active"] = True
+    provider["status"] = "connected"
+    provider["last_checked"] = now
+    _save_providers(providers)
+
+    return {"status": "connected", "provider_id": provider_id, "adapter": adapter_key}
 
 
 @router.post("/{provider_id}/test")

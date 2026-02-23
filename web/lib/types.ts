@@ -41,12 +41,13 @@ export interface SecurityFinding {
 export interface AgentProvider {
   id: string;
   name: string;
-  type: 'openai' | 'anthropic' | 'ollama' | 'custom';
+  type: 'openai' | 'anthropic' | 'ollama' | 'custom' | 'openclaw';
   base_url: string;
   api_key_set: boolean;
   model: string;
   status: 'connected' | 'disconnected' | 'error';
   last_checked: string | null;
+  active?: boolean;
 }
 
 export interface ChatMessage {

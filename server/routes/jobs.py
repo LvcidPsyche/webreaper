@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
@@ -25,10 +26,25 @@ class CrawlJobRequest(BaseModel):
     genre: str | None = None
 
 
+class SimpleJobRequest(BaseModel):
+    """Single-URL form as sent by the frontend Jobs page."""
+    url: str
+    depth: int = 3
+    concurrency: int = 10
+    stealth: bool = False
+
+
 class JobResponse(BaseModel):
     job_id: str
     status: str
     target_urls: list[str]
+
+
+@router.post("", response_model=JobResponse)
+async def start_crawl_simple(req: SimpleJobRequest, request: Request):
+    """Start a crawl from the frontend form (single URL)."""
+    full = CrawlJobRequest(urls=[req.url], depth=req.depth, concurrency=req.concurrency, stealth=req.stealth)
+    return await start_crawl(full, request)
 
 
 @router.post("/start", response_model=JobResponse)
@@ -88,19 +104,54 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
 
 @router.get("", include_in_schema=True)
 async def list_jobs(request: Request):
-    """List active and recent jobs."""
-    active = [
-        {"job_id": jid, "status": "running"}
-        for jid in request.app.state.active_jobs
-    ]
+    """List active and recent jobs as a flat CrawlJob list."""
+    now = datetime.now(timezone.utc).isoformat()
+    result = []
+
+    for jid, crawler in request.app.state.active_jobs.items():
+        stats = getattr(crawler, 'stats', {}) or {}
+        result.append({
+            "id": jid,
+            "url": "",
+            "status": "running",
+            "depth": 3,
+            "concurrency": 10,
+            "stealth": False,
+            "pages_crawled": stats.get("pages_crawled", 0),
+            "pages_total": None,
+            "started_at": None,
+            "completed_at": None,
+            "error": None,
+            "created_at": now,
+        })
+
     db = request.app.state.db
-    recent = []
     if db:
         try:
-            recent = await db.get_crawl_stats()
+            rows = await db.get_crawl_stats()
+            active_ids = {j["id"] for j in result}
+            for r in rows:
+                rid = str(r.get("id", ""))
+                if rid in active_ids:
+                    continue
+                result.append({
+                    "id": rid,
+                    "url": r.get("start_url", ""),
+                    "status": r.get("status", "completed"),
+                    "depth": r.get("max_depth", 3),
+                    "concurrency": 10,
+                    "stealth": False,
+                    "pages_crawled": r.get("pages_crawled", 0),
+                    "pages_total": r.get("pages_total"),
+                    "started_at": r.get("started_at"),
+                    "completed_at": r.get("completed_at"),
+                    "error": r.get("error"),
+                    "created_at": r.get("started_at"),
+                })
         except Exception:
             pass
-    return {"active": active, "recent": recent}
+
+    return result
 
 
 @router.delete("/{job_id}")
@@ -111,3 +162,9 @@ async def stop_job(job_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Job not found")
     job._stop_flag = True
     return {"status": "stopping", "job_id": job_id}
+
+
+@router.post("/{job_id}/cancel")
+async def cancel_job(job_id: str, request: Request):
+    """Cancel a running job (POST alias for DELETE)."""
+    return await stop_job(job_id, request)

@@ -14,6 +14,7 @@ import { AnimateIn } from '@/components/shared/animate-in';
 import { SkeletonCard, SkeletonTable } from '@/components/shared/skeleton';
 import { useApi } from '@/hooks/use-api';
 import api from '@/lib/api';
+import { API_BASE_URL } from '@/lib/constants';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -441,7 +442,7 @@ export default function DataPage() {
   const totalPages = pageData ? Math.ceil(pageData.total / pageData.per_page) : 1;
 
   const exportUrl = (fmt: string) =>
-    selectedCrawl ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/data/export/${selectedCrawl}?fmt=${fmt}` : '#';
+    selectedCrawl ? `${API_BASE_URL}/api/data/export/${selectedCrawl}?fmt=${fmt}` : '#';
 
   return (
     <div className="space-y-4">

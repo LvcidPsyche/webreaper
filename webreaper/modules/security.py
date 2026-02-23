@@ -366,7 +366,7 @@ class SecurityScanner:
         if not aggressive:
             return findings
 
-        print(
+        logger.warning(
             f"[ACTIVE SCAN] Firing SQL injection and command injection payloads against {url}. "
             "Only use against authorized targets."
         )

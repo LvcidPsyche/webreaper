@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Settings, Plus, Trash2, RefreshCw, Eye, EyeOff, CheckCircle, XCircle, Loader2, Key, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { Settings, Plus, Trash2, RefreshCw, Eye, EyeOff, CheckCircle, XCircle, Loader2, Key, ShieldCheck, AlertTriangle, Zap } from 'lucide-react';
 import { clsx } from 'clsx';
 import { AnimateIn } from '@/components/shared/animate-in';
 import { SkeletonCard } from '@/components/shared/skeleton';
@@ -187,6 +187,7 @@ export default function SettingsPage() {
   const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, boolean>>({});
+  const [activating, setActivating] = useState<string | null>(null);
 
   const handleSave = useCallback(async () => {
     if (!editing) return;
@@ -203,6 +204,13 @@ export default function SettingsPage() {
     catch { setTestResult((p) => ({ ...p, [id]: false })); }
     setTesting(null);
   }, []);
+
+  const handleActivate = useCallback(async (id: string) => {
+    setActivating(id);
+    try { await api.post(`/api/agents/${id}/activate`); refetch(); }
+    catch { /* error surfaces via status */ }
+    setActivating(null);
+  }, [refetch]);
 
   const startEdit = (p: AgentProvider) => {
     setEditingId(p.id);
@@ -278,11 +286,17 @@ export default function SettingsPage() {
               <div className="bg-reaper-surface border border-reaper-border rounded-lg p-3 flex items-center gap-3">
                 <div className={clsx('w-2 h-2 rounded-full', p.status === 'connected' ? 'bg-reaper-success' : p.status === 'error' ? 'bg-reaper-danger' : 'bg-reaper-muted')} />
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-mono text-white">{p.name}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-mono text-white">{p.name}</span>
+                    {p.active && <span className="text-xs font-mono px-1.5 py-0.5 rounded border border-reaper-accent/40 bg-reaper-accent/10 text-reaper-accent">active</span>}
+                  </div>
                   <div className="text-xs font-mono text-reaper-muted">{p.type} - {p.model}</div>
                 </div>
                 <div className="flex items-center gap-2">
                   {testResult[p.id] !== undefined && (testResult[p.id] ? <CheckCircle className="w-3.5 h-3.5 text-reaper-success" /> : <XCircle className="w-3.5 h-3.5 text-reaper-danger" />)}
+                  <button onClick={() => handleActivate(p.id)} disabled={activating === p.id || p.active} title="Activate" className="p-1.5 text-reaper-muted hover:text-reaper-accent transition-colors disabled:opacity-40">
+                    {activating === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                  </button>
                   <button onClick={() => handleTest(p.id)} disabled={testing === p.id} className="p-1.5 text-reaper-muted hover:text-reaper-accent transition-colors">
                     {testing === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                   </button>

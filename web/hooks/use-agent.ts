@@ -1,8 +1,11 @@
 'use client';
 
+'use client';
+
 import { useState, useEffect, useCallback } from 'react';
 import { useWebSocket } from './use-websocket';
 import { useApi } from './use-api';
+import api from '@/lib/api';
 import type { AgentProvider, ChatMessage } from '@/lib/types';
 
 interface UseAgentReturn {
@@ -75,6 +78,9 @@ export function useAgent(): UseAgentReturn {
 
   const selectProvider = useCallback((id: string) => {
     setActiveProviderId(id);
+    api.post(`/api/agents/${id}/activate`).catch(() => {
+      // Activation errors are non-fatal; gateway may not be running
+    });
   }, []);
 
   return {

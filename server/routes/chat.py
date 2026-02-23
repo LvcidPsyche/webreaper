@@ -23,7 +23,7 @@ async def websocket_chat(websocket: WebSocket):
             data = await websocket.receive_json()
             msg_type = data.get("type", "message")
 
-            if msg_type == "message":
+            if msg_type == "chat_message":
                 user_msg = data.get("content", "")
                 from webreaper.gateway.gateway import AgentGateway
                 gateway = AgentGateway.instance()
@@ -39,13 +39,13 @@ async def websocket_chat(websocket: WebSocket):
                     await websocket.send_json(chunk)
 
             elif msg_type == "tool_approve":
-                tool_id = data.get("tool_id")
+                tool_id = data.get("message_id")
                 from webreaper.gateway.gateway import AgentGateway
                 gateway = AgentGateway.instance()
                 await gateway.approve_tool(tool_id)
 
             elif msg_type == "tool_deny":
-                tool_id = data.get("tool_id")
+                tool_id = data.get("message_id")
                 from webreaper.gateway.gateway import AgentGateway
                 gateway = AgentGateway.instance()
                 await gateway.deny_tool(tool_id)
