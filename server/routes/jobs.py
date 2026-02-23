@@ -24,6 +24,7 @@ class CrawlJobRequest(BaseModel):
     rate_limit: float = 10.0
     respect_robots: bool = False
     genre: str | None = None
+    security_scan: bool = False
 
 
 class SimpleJobRequest(BaseModel):
@@ -32,6 +33,7 @@ class SimpleJobRequest(BaseModel):
     depth: int = 3
     concurrency: int = 10
     stealth: bool = False
+    security_scan: bool = False
 
 
 class JobResponse(BaseModel):
@@ -43,32 +45,29 @@ class JobResponse(BaseModel):
 @router.post("", response_model=JobResponse)
 async def start_crawl_simple(req: SimpleJobRequest, request: Request):
     """Start a crawl from the frontend form (single URL)."""
-    full = CrawlJobRequest(urls=[req.url], depth=req.depth, concurrency=req.concurrency, stealth=req.stealth)
+    full = CrawlJobRequest(
+        urls=[req.url], depth=req.depth, concurrency=req.concurrency,
+        stealth=req.stealth, security_scan=req.security_scan,
+    )
     return await start_crawl(full, request)
 
 
 @router.post("/start", response_model=JobResponse)
 async def start_crawl(req: CrawlJobRequest, request: Request):
     """Start a new crawl job."""
-    # --- License enforcement (skipped in admin mode) ---
     effective_max = req.max_pages
     if not is_admin():
         tier = get_tier()
         page_limit = get_page_limit()
         allowed, reason = can_crawl(req.max_pages, page_limit)
         if not allowed:
-            raise HTTPException(
-                status_code=402,
-                detail=f"License limit: {reason}",
-            )
-        # Cap max_pages at remaining allowance (LITE tier)
+            raise HTTPException(status_code=402, detail=f"License limit: {reason}")
         if page_limit is not None:
             from webreaper.usage import get_usage
             used = get_usage().get("pages_crawled", 0)
             remaining = page_limit - used
             effective_max = min(req.max_pages, remaining)
 
-    # Hard cap regardless of license or user request
     effective_max = min(effective_max, 50_000)
 
     job_id = str(uuid.uuid4())[:8]
@@ -89,8 +88,10 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
     async def run_job():
         try:
             await crawler.crawl(req.urls, callback=None)
-            # stats["pages_crawled"] is authoritative — results list may be empty when DB is used
             add_pages(crawler.stats["pages_crawled"])
+            # Optional post-crawl security scan
+            if req.security_scan:
+                await _run_post_crawl_scan(req.urls[0], db, job_id, request)
         except Exception as e:
             request.app.state.log_buffer.add("error", f"Job {job_id} failed: {e}")
         finally:
@@ -101,12 +102,53 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
         "depth": req.depth,
         "concurrency": req.concurrency,
         "stealth": req.stealth,
+        "security_scan": req.security_scan,
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
     request.app.state.active_jobs[job_id] = crawler
     asyncio.create_task(run_job())
 
     return JobResponse(job_id=job_id, status="running", target_urls=req.urls)
+
+
+async def _run_post_crawl_scan(url: str, db, job_id: str, request) -> None:
+    """Run security scan against crawled URL and persist findings."""
+    try:
+        from webreaper.fetcher import StealthFetcher
+        from webreaper.config import StealthConfig
+        from webreaper.modules.security import SecurityScanner
+        from webreaper.database import SecurityFinding
+
+        request.app.state.log_buffer.add("info", f"Job {job_id}: running post-crawl security scan on {url}")
+        fetcher_config = StealthConfig()
+        async with StealthFetcher(fetcher_config) as fetcher:
+            status, headers, body = await fetcher.fetch(url)
+
+        scanner = SecurityScanner(auto_attack=False)
+        findings = scanner.scan(url, headers, body, [])
+
+        if db and findings:
+            async with db.get_session() as session:
+                from datetime import datetime, timezone
+                for f in findings:
+                    sf = SecurityFinding(
+                        id=uuid.uuid4(),
+                        url=url,
+                        finding_type=f.get("type", "unknown"),
+                        severity=f.get("severity", "info").capitalize(),
+                        title=f.get("title", ""),
+                        evidence=f.get("evidence", ""),
+                        parameter=f.get("parameter"),
+                        remediation=f.get("remediation"),
+                        discovered_at=datetime.now(timezone.utc),
+                    )
+                    session.add(sf)
+                await session.commit()
+        request.app.state.log_buffer.add(
+            "info", f"Job {job_id}: security scan complete — {len(findings)} finding(s)"
+        )
+    except Exception as e:
+        request.app.state.log_buffer.add("warning", f"Job {job_id}: security scan failed: {e}")
 
 
 @router.get("", include_in_schema=True)
@@ -125,6 +167,7 @@ async def list_jobs(request: Request):
             "depth": meta.get("depth", 3),
             "concurrency": meta.get("concurrency", 10),
             "stealth": meta.get("stealth", False),
+            "security_scan": meta.get("security_scan", False),
             "pages_crawled": stats.get("pages_crawled", 0),
             "pages_total": None,
             "started_at": meta.get("started_at"),
@@ -149,6 +192,7 @@ async def list_jobs(request: Request):
                     "depth": r.get("max_depth", 3),
                     "concurrency": 10,
                     "stealth": False,
+                    "security_scan": False,
                     "pages_crawled": r.get("pages_crawled", 0),
                     "pages_total": r.get("pages_total"),
                     "started_at": r.get("started_at"),

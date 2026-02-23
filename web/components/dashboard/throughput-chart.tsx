@@ -29,44 +29,42 @@ export function ThroughputChart({ data }: ThroughputChartProps) {
 
   return (
     <AnimateIn delay={0.1}>
-      <div className="bg-reaper-surface border border-reaper-border rounded-lg p-4">
-        <h3 className="text-xs font-mono text-reaper-muted uppercase tracking-wider mb-4">
-          Throughput (pages/sec)
-        </h3>
+      <div className="ghost-panel p-4">
+        <h3 className="ghost-label mb-4">Throughput — pages/sec</h3>
         <div className="h-48">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData}>
-              <CartesianGrid stroke="#1e1e2e" strokeDasharray="3 3" />
+              <CartesianGrid stroke="#0e1520" strokeDasharray="2 4" />
               <XAxis
                 dataKey="time"
-                tick={{ fill: '#666680', fontSize: 10, fontFamily: 'monospace' }}
-                axisLine={{ stroke: '#1e1e2e' }}
+                tick={{ fill: '#3d6080', fontSize: 9, fontFamily: 'Share Tech Mono, monospace' }}
+                axisLine={{ stroke: '#141c28' }}
                 tickLine={false}
               />
               <YAxis
-                tick={{ fill: '#666680', fontSize: 10, fontFamily: 'monospace' }}
-                axisLine={{ stroke: '#1e1e2e' }}
+                tick={{ fill: '#3d6080', fontSize: 9, fontFamily: 'Share Tech Mono, monospace' }}
+                axisLine={{ stroke: '#141c28' }}
                 tickLine={false}
-                width={40}
+                width={32}
               />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: '#12121a',
-                  border: '1px solid #1e1e2e',
-                  borderRadius: 6,
-                  fontFamily: 'monospace',
-                  fontSize: 12,
+                  backgroundColor: '#080b12',
+                  border: '1px solid #141c28',
+                  borderRadius: 2,
+                  fontFamily: 'Share Tech Mono, monospace',
+                  fontSize: 11,
                 }}
-                labelStyle={{ color: '#666680' }}
-                itemStyle={{ color: '#00d4ff' }}
+                labelStyle={{ color: '#3d6080' }}
+                itemStyle={{ color: '#39ff14' }}
               />
               <Line
                 type="monotone"
                 dataKey="value"
-                stroke="#00d4ff"
-                strokeWidth={2}
+                stroke="#39ff14"
+                strokeWidth={1.5}
                 dot={false}
-                activeDot={{ r: 3, fill: '#00d4ff' }}
+                activeDot={{ r: 2, fill: '#39ff14', stroke: 'none' }}
               />
             </LineChart>
           </ResponsiveContainer>

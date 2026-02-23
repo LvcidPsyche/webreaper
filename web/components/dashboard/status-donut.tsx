@@ -19,20 +19,19 @@ export function StatusDonut({ statusCodes }: StatusDonutProps) {
 
   return (
     <AnimateIn delay={0.15}>
-      <div className="bg-reaper-surface border border-reaper-border rounded-lg p-4">
-        <h3 className="text-xs font-mono text-reaper-muted uppercase tracking-wider mb-4">
-          Status Distribution
-        </h3>
+      <div className="ghost-panel p-4">
+        <h3 className="ghost-label mb-4">HTTP Status</h3>
         <div className="flex items-center gap-4">
-          <div className="h-36 w-36">
+          <div className="h-32 w-32 shrink-0">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={data}
-                  innerRadius={35}
-                  outerRadius={55}
+                  innerRadius={30}
+                  outerRadius={50}
                   paddingAngle={2}
                   dataKey="value"
+                  strokeWidth={0}
                 >
                   {data.map((entry, i) => (
                     <Cell key={i} fill={entry.color} stroke="transparent" />
@@ -40,26 +39,23 @@ export function StatusDonut({ statusCodes }: StatusDonutProps) {
                 </Pie>
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#12121a',
-                    border: '1px solid #1e1e2e',
-                    borderRadius: 6,
-                    fontFamily: 'monospace',
-                    fontSize: 12,
+                    backgroundColor: '#080b12',
+                    border: '1px solid #141c28',
+                    borderRadius: 2,
+                    fontFamily: 'Share Tech Mono, monospace',
+                    fontSize: 11,
                   }}
                 />
               </PieChart>
             </ResponsiveContainer>
           </div>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1.5 min-w-0">
             {data.map((entry) => (
-              <div key={entry.name} className="flex items-center gap-2 text-xs font-mono">
-                <div
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: entry.color }}
-                />
-                <span className="text-reaper-muted">{entry.name}</span>
-                <span className="text-white">
-                  {entry.value} ({total > 0 ? ((entry.value / total) * 100).toFixed(0) : 0}%)
+              <div key={entry.name} className="flex items-center gap-2 text-[10px] font-mono">
+                <div className="w-1.5 h-1.5 shrink-0" style={{ backgroundColor: entry.color }} />
+                <span className="text-ghost-dim">{entry.name}</span>
+                <span className="text-ghost-text ml-auto pl-2">
+                  {total > 0 ? ((entry.value / total) * 100).toFixed(0) : 0}%
                 </span>
               </div>
             ))}

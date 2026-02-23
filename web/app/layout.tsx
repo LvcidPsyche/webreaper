@@ -23,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <html lang="en" className="dark">
-      <body className="bg-reaper-bg text-white antialiased">
+      <body className="bg-ghost-bg text-ghost-text antialiased">
         <div className="flex h-screen overflow-hidden">
           <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
           <div className="flex flex-col flex-1 min-w-0">

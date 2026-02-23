@@ -1,6 +1,5 @@
 'use client';
 
-import { Wifi, WifiOff, Clock, FileText } from 'lucide-react';
 import { Counter } from '@/components/shared/counter';
 
 interface StatusBarProps {
@@ -18,32 +17,24 @@ function formatUptime(seconds: number): string {
 
 export function StatusBar({ pagesCrawled, uptimeSeconds, connected }: StatusBarProps) {
   return (
-    <footer className="h-8 bg-reaper-surface border-t border-reaper-border flex items-center px-4 gap-6 text-xs font-mono">
-      <div className="flex items-center gap-1.5 text-reaper-muted">
-        <FileText className="w-3 h-3" />
-        <span>Pages: </span>
-        <Counter value={pagesCrawled} className="text-white" />
-      </div>
+    <footer className="h-7 bg-ghost-bg border-t border-ghost-border flex items-center px-4 gap-5 shrink-0">
+      <span className="text-[10px] font-mono text-ghost-label uppercase tracking-widest">
+        PAGES{' '}
+        <Counter value={pagesCrawled} className="text-ghost-text" />
+      </span>
 
-      <div className="flex items-center gap-1.5 text-reaper-muted">
-        <Clock className="w-3 h-3" />
-        <span>Uptime: </span>
-        <span className="text-white">{formatUptime(uptimeSeconds)}</span>
-      </div>
+      <span className="text-ghost-border select-none">·</span>
 
-      <div className="flex items-center gap-1.5 ml-auto">
-        {connected ? (
-          <>
-            <Wifi className="w-3 h-3 text-reaper-success" />
-            <span className="text-reaper-success">Connected</span>
-          </>
-        ) : (
-          <>
-            <WifiOff className="w-3 h-3 text-reaper-danger" />
-            <span className="text-reaper-danger">Disconnected</span>
-          </>
-        )}
-      </div>
+      <span className="text-[10px] font-mono text-ghost-label uppercase tracking-widest">
+        UP <span className="text-ghost-text">{formatUptime(uptimeSeconds)}</span>
+      </span>
+
+      <span className="ml-auto flex items-center gap-1.5">
+        <span className={connected ? 'live-dot' : 'w-1.5 h-1.5 rounded-full bg-ghost-red inline-block'} />
+        <span className={`text-[10px] font-mono uppercase tracking-widest ${connected ? 'text-ghost-green' : 'text-ghost-red'}`}>
+          {connected ? 'connected' : 'offline'}
+        </span>
+      </span>
     </footer>
   );
 }

@@ -41,21 +41,24 @@ export default function DashboardPage() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <MetricCard icon={FileText} label="Pages Crawled" value={metrics.pages_crawled} delay={0} />
-        <MetricCard icon={Shield} label="Findings" value={metrics.security_findings} color="#ff4444" delay={0.03} />
-        <MetricCard icon={Play} label="Active Jobs" value={metrics.active_jobs} color="#00ff88" delay={0.06} />
-        <MetricCard icon={Layers} label="Queue Depth" value={metrics.queue_depth} color="#ffaa00" delay={0.09} />
-        <MetricCard icon={Zap} label="Req/s" value={metrics.requests_per_second} decimals={1} delay={0.12} />
-        <div className="bg-reaper-surface border border-reaper-border rounded-lg p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle className="w-4 h-4 text-reaper-danger" />
-            <span className="text-xs font-mono text-reaper-muted uppercase tracking-wider">Error Rate</span>
-          </div>
-          <div className="flex items-end gap-2">
-            <span className="text-2xl font-mono font-bold text-white">
-              {metrics.error_rate.toFixed(1)}%
-            </span>
-            <ErrorSparkline data={errorHistory} />
+        <MetricCard icon={FileText} label="Pages Crawled" value={metrics.pages_crawled} color="#39ff14" delay={0} />
+        <MetricCard icon={Shield} label="Findings" value={metrics.security_findings} color="#ff2a2a" delay={0.03} />
+        <MetricCard icon={Play} label="Active Jobs" value={metrics.active_jobs} color="#39ff14" delay={0.06} />
+        <MetricCard icon={Layers} label="Queue Depth" value={metrics.queue_depth} color="#ff8800" delay={0.09} />
+        <MetricCard icon={Zap} label="Req/s" value={metrics.requests_per_second} decimals={1} color="#4d9fd4" delay={0.12} />
+        <div className="ghost-panel relative overflow-hidden">
+          <div className="h-[2px] w-full bg-ghost-red" />
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="ghost-label">Error Rate</span>
+              <AlertTriangle className="w-3.5 h-3.5 text-ghost-red" />
+            </div>
+            <div className="flex items-end gap-2">
+              <span className="text-2xl font-mono font-bold text-white tabular-nums">
+                {metrics.error_rate.toFixed(1)}%
+              </span>
+              <ErrorSparkline data={errorHistory} />
+            </div>
           </div>
         </div>
       </div>
