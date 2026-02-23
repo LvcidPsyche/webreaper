@@ -13,6 +13,7 @@ import {
   Settings,
   Network,
   ScrollText,
+  Database,
   ChevronLeft,
   ChevronRight,
   Skull,
@@ -21,6 +22,7 @@ import {
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/jobs', label: 'Jobs', icon: Play },
+  { href: '/data', label: 'Data', icon: Database },
   { href: '/security', label: 'Security', icon: Shield },
   { href: '/chat', label: 'Chat', icon: MessageSquare },
   { href: '/workstation', label: 'Workstation', icon: FlaskConical },

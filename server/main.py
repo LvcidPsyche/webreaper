@@ -10,7 +10,7 @@ import uvicorn
 
 from webreaper.database import get_db_manager
 from webreaper.logging_config import configure_logging, get_logger
-from server.routes import jobs, results, security, stream, chat, agents, workstation, license
+from server.routes import jobs, results, security, stream, chat, agents, workstation, license, data
 from server.services.log_buffer import LogBuffer
 from server.services.metrics import MetricsService
 
@@ -62,6 +62,7 @@ app.include_router(chat.router, prefix="/ws", tags=["websocket"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
 app.include_router(workstation.router, prefix="/api/workstation", tags=["workstation"])
 app.include_router(license.router, prefix="/api/license", tags=["license"])
+app.include_router(data.router, prefix="/api/data", tags=["data"])
 
 
 @app.get("/health")

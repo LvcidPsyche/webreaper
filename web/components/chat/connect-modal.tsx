@@ -19,8 +19,9 @@ interface ConnectionConfig {
 
 const providerDefaults: Record<string, { url: string; model: string }> = {
   openai: { url: 'https://api.openai.com/v1', model: 'gpt-4o' },
-  anthropic: { url: 'https://api.anthropic.com', model: 'claude-sonnet-4-20250514' },
+  anthropic: { url: 'https://api.anthropic.com', model: 'claude-sonnet-4-6' },
   ollama: { url: 'http://localhost:11434', model: 'llama3' },
+  openclaw: { url: 'http://76.13.114.80', model: 'claude-sonnet-4-6' },
   custom: { url: '', model: '' },
 };
 
@@ -78,8 +79,9 @@ export function ConnectModal({ open, onClose, onConnect }: ConnectModalProps) {
               onChange={(e) => handleTypeChange(e.target.value)}
               className="mt-1 w-full bg-reaper-bg border border-reaper-border rounded px-3 py-1.5 text-sm font-mono text-white focus:border-reaper-accent outline-none"
             >
-              <option value="openai">OpenAI</option>
+              <option value="openclaw">OpenClaw (VPS Gateway)</option>
               <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
               <option value="ollama">Ollama</option>
               <option value="custom">Custom</option>
             </select>

@@ -236,8 +236,11 @@ export default function SettingsPage() {
               <label className="block">
                 <span className="text-xs font-mono text-reaper-muted">Type</span>
                 <select value={editing.type} onChange={(e) => setEditing((p) => p && ({ ...p, type: e.target.value }))} className={inputCls}>
-                  <option value="openai">OpenAI</option><option value="anthropic">Anthropic</option>
-                  <option value="ollama">Ollama</option><option value="custom">Custom</option>
+                  <option value="openclaw">OpenClaw (VPS Gateway)</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="ollama">Ollama</option>
+                  <option value="custom">Custom</option>
                 </select>
               </label>
               <label className="block">

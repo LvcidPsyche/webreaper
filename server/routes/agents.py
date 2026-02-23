@@ -162,6 +162,18 @@ async def test_provider(provider_id: str):
             async with httpx.AsyncClient(timeout=10) as client:
                 r = await client.get(f"{url}/api/tags")
                 ok = r.status_code == 200
+        elif ptype == "openclaw":
+            # OpenClaw VPS gateway — check health endpoint
+            url = base_url.rstrip("/") if base_url else "http://76.13.114.80"
+            async with httpx.AsyncClient(timeout=10) as client:
+                try:
+                    r = await client.get(f"{url}/health")
+                    ok = r.status_code < 500
+                except Exception:
+                    # Fall back to models list (OpenAI-compatible)
+                    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+                    r = await client.get(f"{url}/v1/models", headers=headers)
+                    ok = r.status_code < 500
         else:
             # custom — just try a HEAD on base_url
             if base_url:
