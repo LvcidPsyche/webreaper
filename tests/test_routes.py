@@ -90,8 +90,7 @@ def test_list_jobs_empty(client):
     resp = client.get("/api/jobs")
     assert resp.status_code == 200
     data = resp.json()
-    assert "active" in data
-    assert "recent" in data
+    assert isinstance(data, list)
 
 
 # ── DELETE /api/jobs/{job_id} ────────────────────────────────

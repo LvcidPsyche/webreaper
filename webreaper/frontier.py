@@ -83,7 +83,7 @@ class URLFrontier:
         """Check if two URLs are on the same domain."""
         ext1 = tldextract.extract(url1)
         ext2 = tldextract.extract(url2)
-        return ext1.registered_domain == ext2.registered_domain
+        return ext1.top_domain_under_public_suffix == ext2.top_domain_under_public_suffix
     
     @staticmethod
     def is_subdomain(url: str, base_url: str) -> bool:
@@ -92,11 +92,11 @@ class URLFrontier:
         ext2 = tldextract.extract(base_url)
         
         # Same registered domain
-        if ext1.registered_domain != ext2.registered_domain:
+        if ext1.top_domain_under_public_suffix != ext2.top_domain_under_public_suffix:
             return False
         
         # URL domain ends with base domain
-        domain1 = f"{ext1.subdomain}.{ext1.registered_domain}".lstrip(".")
-        domain2 = f"{ext2.subdomain}.{ext2.registered_domain}".lstrip(".")
+        domain1 = f"{ext1.subdomain}.{ext1.top_domain_under_public_suffix}".lstrip(".")
+        domain2 = f"{ext2.subdomain}.{ext2.top_domain_under_public_suffix}".lstrip(".")
         
         return domain1 == domain2 or domain1.endswith("." + domain2)
