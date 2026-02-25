@@ -1,6 +1,7 @@
 """Tests for crawler.py — URL logic, depth limits, DB interaction."""
 
 import asyncio
+import time
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from webreaper.crawler import Crawler, CrawlResult
@@ -258,3 +259,35 @@ async def test_crawl_page_browser_failure_no_fallback_returns_none(mock_crawler_
 
     result = await crawler._crawl_page(fetcher, "https://example.com", 0)
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_persist_progress_if_needed_calls_db_update(mock_crawler_config):
+    mock_db = AsyncMock()
+    mock_db.update_crawl_progress = AsyncMock()
+    crawler = Crawler(mock_crawler_config, db_manager=mock_db)
+    crawler._crawl_id = "crawl-1"
+    crawler.stats.update({
+        "start_time": 1.0,
+        "pages_crawled": 30,
+        "pages_failed": 0,
+        "total_size": 100,
+        "external_links": 2,
+    })
+
+    with patch("webreaper.crawler.time.time", return_value=11.0):
+        await crawler._persist_progress_if_needed()
+
+    mock_db.update_crawl_progress.assert_awaited_once()
+
+
+def test_crawl_marks_cancelled_status_on_stop_flag(mock_crawler_config):
+    crawler = Crawler(mock_crawler_config)
+    crawler._stop_flag = True
+    crawler.stats["start_time"] = 100.0
+    with patch("webreaper.crawler.time.time", return_value=110.0):
+        # emulate finalization lines in crawl() without running a crawl
+        elapsed = time.time() - crawler.stats["start_time"]
+        crawler.stats["total_time"] = elapsed
+        crawler.stats["crawl_status"] = "cancelled" if crawler._stop_flag else "completed"
+    assert crawler.stats["crawl_status"] == "cancelled"

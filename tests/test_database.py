@@ -268,3 +268,31 @@ async def test_endpoint_inventory_derive_and_upsert(temp_db):
 
     assert any(r["path"] == "/api/login" and r["method"] == "POST" for r in rows)
     assert any(r["path"] == "/api/users" and r["method"] == "GET" for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_update_crawl_progress_and_complete_status(temp_db):
+    crawl_id = await temp_db.create_crawl(target_url="https://example.com")
+    await temp_db.update_crawl_progress(crawl_id, {
+        "pages_crawled": 7,
+        "pages_failed": 1,
+        "total_size": 1234,
+        "external_links": 5,
+        "total_time": 2.0,
+    })
+    await temp_db.complete_crawl(crawl_id, {
+        "pages_crawled": 7,
+        "pages_failed": 1,
+        "total_size": 1234,
+        "external_links": 5,
+        "total_time": 2.0,
+        "crawl_status": "cancelled",
+    })
+
+    async with temp_db.get_session() as session:
+        row = (await session.execute(text("SELECT status, pages_crawled, pages_failed FROM crawls WHERE id = :id"), {"id": crawl_id})).fetchone()
+        rec = dict(row._mapping)
+
+    assert rec["status"] == "cancelled"
+    assert rec["pages_crawled"] == 7
+    assert rec["pages_failed"] == 1

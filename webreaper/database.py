@@ -504,12 +504,13 @@ class DatabaseManager:
 
         elapsed = stats.get("total_time", 0)
         rps = stats["pages_crawled"] / elapsed if elapsed > 0 else 0
+        crawl_status = stats.get("crawl_status", "completed")
 
         async with self.get_session() as session:
             await session.execute(
                 text("""
                     UPDATE crawls SET
-                        status = 'completed',
+                        status = :status,
                         completed_at = :now,
                         pages_crawled = :pages_crawled,
                         pages_failed = :pages_failed,
@@ -520,6 +521,7 @@ class DatabaseManager:
                 """),
                 {
                     "crawl_id": crawl_id,
+                    "status": crawl_status,
                     "now": _now().isoformat(),
                     "pages_crawled": stats.get("pages_crawled", 0),
                     "pages_failed": stats.get("pages_failed", 0),
@@ -527,6 +529,33 @@ class DatabaseManager:
                     "external_links": stats.get("external_links", 0),
                     "rps": rps,
                 }
+            )
+
+    async def update_crawl_progress(self, crawl_id: str, stats: Dict):
+        """Persist partial crawl progress during long-running jobs."""
+        if not self.async_session_maker:
+            await self.init_async()
+        elapsed = stats.get("total_time", 0)
+        rps = stats.get("pages_crawled", 0) / elapsed if elapsed > 0 else stats.get("requests_per_second", 0)
+        async with self.get_session() as session:
+            await session.execute(
+                text("""
+                    UPDATE crawls SET
+                        pages_crawled = :pages_crawled,
+                        pages_failed = :pages_failed,
+                        total_bytes = :total_size,
+                        external_links = :external_links,
+                        requests_per_sec = :rps
+                    WHERE id = :crawl_id
+                """),
+                {
+                    "crawl_id": crawl_id,
+                    "pages_crawled": stats.get("pages_crawled", 0),
+                    "pages_failed": stats.get("pages_failed", 0),
+                    "total_size": stats.get("total_size", 0),
+                    "external_links": stats.get("external_links", 0),
+                    "rps": rps,
+                },
             )
 
     async def save_page(self, crawl_id: str, **kwargs) -> Optional[str]:

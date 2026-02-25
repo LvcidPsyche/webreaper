@@ -133,6 +133,13 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
                 await _run_post_crawl_scan(req.urls[0], db, job_id, request)
         except Exception as e:
             request.app.state.log_buffer.add("error", f"Job {job_id} failed: {e}")
+            if db and getattr(crawler, "_crawl_id", None):
+                try:
+                    crawler.stats["total_time"] = 0
+                    crawler.stats["crawl_status"] = "failed"
+                    await db.complete_crawl(crawler._crawl_id, crawler.stats)
+                except Exception:
+                    pass
         finally:
             request.app.state.active_jobs.pop(job_id, None)
             metrics = getattr(request.app.state, "metrics", None)

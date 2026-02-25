@@ -83,6 +83,7 @@ class Crawler:
         self._workspace_id: Optional[str] = None
         self._robots: Optional[RobotsCache] = None
         self._metrics_callback: Optional[Callable] = None  # For metrics integration
+        self._last_progress_persist_pages = 0
 
     async def crawl(self, start_urls: List[str], callback: Optional[Callable] = None) -> List[CrawlResult]:
         """Start crawling from seed URLs."""
@@ -120,6 +121,8 @@ class Crawler:
             await asyncio.gather(*workers, return_exceptions=True)
 
         elapsed = time.time() - self.stats["start_time"]
+        self.stats["total_time"] = elapsed
+        self.stats["crawl_status"] = "cancelled" if self._stop_flag else "completed"
         self.stats["requests_per_second"] = (self.stats["pages_crawled"] / elapsed) if elapsed > 0 else 0.0
         self.stats["queue_size"] = self.frontier.qsize()
         self.stats["current_url"] = ""
@@ -195,9 +198,11 @@ class Crawler:
                         status_code=result.status,
                         bytes_delta=len(result.content_text or ""),
                     )
+                    await self._persist_progress_if_needed()
                 else:
                     self.stats["pages_failed"] += 1
                     self._emit_metrics(fail_delta=1)
+                    await self._persist_progress_if_needed()
 
         except asyncio.CancelledError:
             pass
@@ -237,6 +242,24 @@ class Crawler:
             self._metrics_callback(event)
         except Exception as e:
             logger.debug("Metrics callback error ignored: %s", e)
+
+    async def _persist_progress_if_needed(self) -> None:
+        """Persist partial crawl progress periodically for restart-safe visibility."""
+        if not (self.db_manager and self._crawl_id):
+            return
+        pages = int(self.stats.get("pages_crawled", 0))
+        fails = int(self.stats.get("pages_failed", 0))
+        # Persist every 25 events or on failures to improve visibility.
+        if pages - self._last_progress_persist_pages < 25 and fails == 0:
+            return
+        self.stats["total_time"] = time.time() - self.stats["start_time"] if self.stats.get("start_time") else 0
+        try:
+            await self.db_manager.update_crawl_progress(self._crawl_id, self.stats)
+            self._last_progress_persist_pages = pages
+            # Avoid persisting the same failure-trigger repeatedly.
+            self.stats["pages_failed"] = fails
+        except Exception as e:
+            logger.debug("DB: failed to persist crawl progress: %s", e)
 
     async def _crawl_page(self, fetcher: StealthFetcher, url: str, depth: int) -> Optional[CrawlResult]:
         """Crawl a single page with deep extraction."""

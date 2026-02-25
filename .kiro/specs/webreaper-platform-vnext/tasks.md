@@ -42,7 +42,7 @@
     - _Requirements: 1.2, 1.3, 4.1, 8.4, 11.3_
 
 - [ ] 5. Refactor crawl job orchestration for persistent state and real metrics
-  - [ ] 5.1 Introduce persistent crawl run state transitions
+  - [x] 5.1 Introduce persistent crawl run state transitions
     - Normalize job/crawl run lifecycle (queued/running/completed/failed/canceled) in backend services and routes.
     - _Requirements: 1.2, 2.1, 2.4, 14.2_
   - [x] 5.2 Instrument crawler/fetcher metrics and progress fields used by UI streams
