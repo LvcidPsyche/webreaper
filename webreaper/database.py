@@ -443,6 +443,64 @@ class RepeaterRun(Base):
     created_at = Column(DateTime(timezone=True), default=_now, index=True)
 
 
+class IntruderJob(Base):
+    """Queued fuzzing job (Burp Intruder-like)."""
+    __tablename__ = 'intruder_jobs'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
+    source_transaction_id = Column(String(36), ForeignKey('http_transactions.id', ondelete='SET NULL'), nullable=True, index=True)
+
+    name = Column(String(255))
+    method = Column(String(16), nullable=False, default='GET')
+    url = Column(Text, nullable=False)
+    headers = Column(JSON)
+    body = Column(Text)
+
+    payloads = Column(JSON)              # ["admin","test"]
+    payload_markers = Column(JSON)       # [{"location":"url","count":1}, ...]
+    attack_type = Column(String(20), default='sniper')  # sniper (MVP)
+
+    concurrency = Column(Integer, default=1)
+    rate_limit_rps = Column(Float)
+    timeout_ms = Column(Integer, default=10000)
+    follow_redirects = Column(Boolean, default=True)
+    match_substring = Column(Text)
+    stop_on_statuses = Column(JSON)
+    stop_on_first_match = Column(Boolean, default=False)
+
+    status = Column(String(20), default='queued', index=True)  # queued|running|completed|cancelled|error
+    total_attempts = Column(Integer, default=0)
+    completed_attempts = Column(Integer, default=0)
+    matched_attempts = Column(Integer, default=0)
+    cancelled = Column(Boolean, default=False)
+    last_error = Column(Text)
+
+    started_at = Column(DateTime(timezone=True))
+    completed_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=_now, index=True)
+    updated_at = Column(DateTime(timezone=True), default=_now)
+
+
+class IntruderResult(Base):
+    """Per-attempt execution result for an Intruder job."""
+    __tablename__ = 'intruder_results'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    job_id = Column(String(36), ForeignKey('intruder_jobs.id', ondelete='CASCADE'), index=True)
+    attempt_index = Column(Integer, nullable=False, index=True)
+    payload = Column(Text)
+    request_url = Column(Text)
+    request_body = Column(Text)
+    transaction_id = Column(String(36), ForeignKey('http_transactions.id', ondelete='SET NULL'), nullable=True, index=True)
+    response_status = Column(Integer, index=True)
+    duration_ms = Column(Integer)
+    matched = Column(Boolean, default=False, index=True)
+    match_reason = Column(Text)
+    error = Column(Text)
+    created_at = Column(DateTime(timezone=True), default=_now, index=True)
+
+
 class DashboardMetric(Base):
     """Real-time dashboard analytics data."""
     __tablename__ = 'dashboard_metrics'
@@ -1019,6 +1077,82 @@ class DatabaseManager:
             result = await session.execute(text("SELECT * FROM repeater_runs WHERE id = :id"), {"id": run_id})
             row = result.fetchone()
             return _decode_json_fields(dict(row._mapping), ["diff_summary"]) if row else None
+
+    async def create_intruder_job(self, record: Dict[str, Any]) -> str:
+        """Create an Intruder job row."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            obj = IntruderJob(**record)
+            session.add(obj)
+            await session.flush()
+            return str(obj.id)
+
+    async def get_intruder_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            result = await session.execute(text("SELECT * FROM intruder_jobs WHERE id = :id"), {"id": job_id})
+            row = result.fetchone()
+            return _decode_json_fields(dict(row._mapping), ["headers", "payloads", "payload_markers", "stop_on_statuses"]) if row else None
+
+    async def list_intruder_jobs(self, workspace_id: Optional[str] = None, limit: int = 200) -> List[Dict[str, Any]]:
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            if workspace_id:
+                result = await session.execute(
+                    text("SELECT * FROM intruder_jobs WHERE workspace_id = :wid ORDER BY created_at DESC LIMIT :limit"),
+                    {"wid": workspace_id, "limit": limit},
+                )
+            else:
+                result = await session.execute(
+                    text("SELECT * FROM intruder_jobs ORDER BY created_at DESC LIMIT :limit"),
+                    {"limit": limit},
+                )
+            return [
+                _decode_json_fields(dict(r._mapping), ["headers", "payloads", "payload_markers", "stop_on_statuses"])
+                for r in result.fetchall()
+            ]
+
+    async def update_intruder_job(self, job_id: str, **kwargs) -> bool:
+        if not kwargs:
+            return True
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            exists = await session.execute(text("SELECT id FROM intruder_jobs WHERE id = :id"), {"id": job_id})
+            if not exists.fetchone():
+                return False
+            sets = ", ".join([f"{k} = :{k}" for k in kwargs.keys()])
+            await session.execute(
+                text(f"UPDATE intruder_jobs SET {sets} WHERE id = :id"),
+                {"id": job_id, **{k: _sql_bind_value(v) for k, v in kwargs.items()}},
+            )
+            return True
+
+    async def create_intruder_result(self, record: Dict[str, Any]) -> str:
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            obj = IntruderResult(**record)
+            session.add(obj)
+            await session.flush()
+            return str(obj.id)
+
+    async def list_intruder_results(self, job_id: str, limit: int = 1000, offset: int = 0) -> Dict[str, Any]:
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            rows = await session.execute(
+                text("SELECT * FROM intruder_results WHERE job_id = :id ORDER BY attempt_index ASC LIMIT :limit OFFSET :offset"),
+                {"id": job_id, "limit": limit, "offset": offset},
+            )
+            count = await session.execute(text("SELECT COUNT(*) FROM intruder_results WHERE job_id = :id"), {"id": job_id})
+            return {
+                "total": count.scalar_one(),
+                "results": [dict(r._mapping) for r in rows.fetchall()],
+            }
 
     @staticmethod
     def derive_endpoints_from_page(url: str, forms: Optional[List[Dict[str, Any]]] = None, links: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:

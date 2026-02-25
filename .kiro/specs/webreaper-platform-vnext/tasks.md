@@ -143,10 +143,10 @@
     - _Requirements: 7.4, 15.2_
 
 - [ ] 15. Implement Intruder backend MVP (payload engine + queued fuzzing)
-  - [ ] 15.1 Add Intruder job models, APIs, and payload position parsing
+  - [x] 15.1 Add Intruder job models, APIs, and payload position parsing
     - Support payload markers/positions, payload sets, concurrency, and rate control settings.
     - _Requirements: 7.3, 8.1, 10.1_
-  - [ ] 15.2 Execute Intruder jobs with throttling and result summaries
+  - [x] 15.2 Execute Intruder jobs with throttling and result summaries
     - Persist per-attempt transaction references, match/extract summaries, and stop conditions.
     - _Requirements: 7.3, 8.2, 14.1_
   - [ ] 15.3 Add tests for rate limiting, stop conditions, and job resume/cancel behavior

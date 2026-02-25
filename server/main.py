@@ -13,7 +13,8 @@ from webreaper.logging_config import configure_logging, get_logger
 from webreaper.migrations import ensure_database_schema
 from webreaper.proxy.service import ProxyService
 from webreaper.repeater.service import RepeaterService
-from server.routes import jobs, results, security, stream, chat, agents, workstation, license, data, analysis, workspaces, proxy, repeater
+from webreaper.intruder.service import IntruderService
+from server.routes import jobs, results, security, stream, chat, agents, workstation, license, data, analysis, workspaces, proxy, repeater, intruder
 from server.services.log_buffer import LogBuffer
 from server.services.metrics import MetricsService
 
@@ -24,6 +25,7 @@ log_buffer = LogBuffer(max_size=1000)
 metrics_service = MetricsService()
 proxy_service = ProxyService()
 repeater_service = RepeaterService()
+intruder_service = IntruderService()
 
 
 @asynccontextmanager
@@ -39,6 +41,7 @@ async def lifespan(app: FastAPI):
     app.state.active_jobs = {}
     app.state.proxy_service = proxy_service
     app.state.repeater_service = repeater_service
+    app.state.intruder_service = intruder_service
     yield
     logger.info("WebReaper API shutting down...")
     for job_id, job in app.state.active_jobs.items():
@@ -78,6 +81,7 @@ app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
 app.include_router(workspaces.router, prefix="/api/workspaces", tags=["workspaces"])
 app.include_router(proxy.router, prefix="/api/proxy", tags=["proxy"])
 app.include_router(repeater.router, prefix="/api/repeater", tags=["repeater"])
+app.include_router(intruder.router, prefix="/api/intruder", tags=["intruder"])
 
 
 @app.get("/health")
