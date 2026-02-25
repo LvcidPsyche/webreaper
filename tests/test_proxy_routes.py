@@ -57,6 +57,37 @@ def test_proxy_session_lifecycle_and_history(temp_db):
         tx_id = capture.json()["id"]
         assert tx_id
 
+        queue = client.get(f"/api/proxy/intercept/queue?session_id={sid}")
+        assert queue.status_code == 200
+        items = queue.json()["items"]
+        assert len(items) >= 1
+        assert any(item["id"] == tx_id for item in items)
+
+        edit = client.post(f"/api/proxy/intercept/{tx_id}/edit", json={
+            "request": {"body": "{\"edited\":true}"},
+            "tags": ["edited"],
+        })
+        assert edit.status_code == 200
+        assert edit.json()["intercept_state"] == "edited"
+
+        capture2 = client.post("/api/proxy/capture", json={
+            "session_id": sid,
+            "source": "proxy",
+            "request": {
+                "method": "GET",
+                "url": "https://example.com/api/me",
+                "headers": {},
+            },
+            "response": {"status": 200, "headers": {}, "body": "ok", "duration_ms": 10},
+            "intercept_state": "none",
+        })
+        assert capture2.status_code == 200
+        tx2 = capture2.json()["id"]
+
+        forward = client.post(f"/api/proxy/intercept/{tx2}/forward")
+        assert forward.status_code == 200
+        assert forward.json()["intercept_state"] == "forwarded"
+
         history = client.get(f"/api/proxy/history?session_id={sid}&method=POST&host=example.com")
         assert history.status_code == 200
         data = history.json()
@@ -64,10 +95,9 @@ def test_proxy_session_lifecycle_and_history(temp_db):
         tx = data["transactions"][0]
         assert tx["method"] == "POST"
         assert tx["host"] == "example.com"
-        assert tx["intercept_state"] == "forwarded"
+        assert tx["intercept_state"] == "edited"
         assert tx["truncated"] in (True, 1)
 
         stop = client.post(f"/api/proxy/sessions/{sid}/stop")
         assert stop.status_code == 200
         assert stop.json()["status"] == "stopped"
-

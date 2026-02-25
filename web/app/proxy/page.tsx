@@ -50,6 +50,8 @@ export default function ProxyPage() {
   const [selectedTx, setSelectedTx] = useState<ProxyTx | null>(null);
   const [methodFilter, setMethodFilter] = useState('');
   const [hostFilter, setHostFilter] = useState('');
+  const [queuedOnly, setQueuedOnly] = useState(false);
+  const [queueCount, setQueueCount] = useState(0);
 
   const activeSession = useMemo(() => sessions.find((s) => s.id === selectedSessionId) ?? null, [sessions, selectedSessionId]);
 
@@ -64,10 +66,19 @@ export default function ProxyPage() {
     if (selectedSessionId) params.set('session_id', selectedSessionId);
     if (methodFilter) params.set('method', methodFilter);
     if (hostFilter) params.set('host', hostFilter);
+    if (queuedOnly) params.set('intercept_state', 'queued');
     const q = params.toString();
     const data = await api.get<ProxyHistoryResponse>(`/api/proxy/history${q ? `?${q}` : ''}`);
     setHistory(data);
     setSelectedTx(data.transactions[0] ?? null);
+  }
+
+  async function loadQueueCount() {
+    const params = new URLSearchParams();
+    if (selectedSessionId) params.set('session_id', selectedSessionId);
+    const q = params.toString();
+    const data = await api.get<{ count: number }>(`/api/proxy/intercept/queue${q ? `?${q}` : ''}`);
+    setQueueCount(data.count);
   }
 
   async function refreshAll() {
@@ -75,6 +86,7 @@ export default function ProxyPage() {
       setLoading(true);
       await loadSessions();
       await loadHistory();
+      await loadQueueCount();
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load proxy data');
@@ -84,7 +96,12 @@ export default function ProxyPage() {
   }
 
   useEffect(() => { void refreshAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (!loading) void loadHistory().catch((e) => setError(e instanceof Error ? e.message : 'Failed to load history')); }, [selectedSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!loading) {
+      void loadHistory().catch((e) => setError(e instanceof Error ? e.message : 'Failed to load history'));
+      void loadQueueCount().catch((e) => setError(e instanceof Error ? e.message : 'Failed to load queue'));
+    }
+  }, [selectedSessionId, queuedOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function startSession() {
     try {
@@ -120,6 +137,24 @@ export default function ProxyPage() {
     }
   }
 
+  async function interceptAction(action: 'forward' | 'drop' | 'edit', tx: ProxyTx) {
+    try {
+      if (action === 'edit') {
+        await api.post(`/api/proxy/intercept/${tx.id}/edit`, {
+          request: { body: `${tx.request_body || ''}${tx.request_body ? '\n' : ''}/* edited */` },
+          tags: ['manual-edit'],
+        });
+      } else {
+        await api.post(`/api/proxy/intercept/${tx.id}/${action}`, {});
+      }
+      await loadHistory();
+      await loadQueueCount();
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `Failed to ${action} intercept item`);
+    }
+  }
+
   return (
     <div className="h-full p-4 md:p-6 bg-reaper-bg text-white">
       <div className="flex items-center justify-between mb-4 gap-3">
@@ -135,6 +170,13 @@ export default function ProxyPage() {
             <Play className="w-3 h-3" /> Start Session
           </button>
         </div>
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-3 text-xs font-mono text-reaper-muted">
+        <span>Intercept queue: <span className="text-amber-300">{queueCount}</span></span>
+        <label className="inline-flex items-center gap-2">
+          <input type="checkbox" checked={queuedOnly} onChange={(e) => setQueuedOnly(e.target.checked)} /> Show queued only
+        </label>
       </div>
 
       {error && <div className="mb-4 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs font-mono text-red-300">{error}</div>}
@@ -215,6 +257,13 @@ export default function ProxyPage() {
               <div className="rounded border border-reaper-border bg-black/20 p-3 text-xs font-mono">
                 <div className="text-reaper-muted mb-1">Request</div>
                 <div className="text-white break-all">{selectedTx.method} {selectedTx.url}</div>
+                {selectedTx.intercept_state === 'queued' && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button onClick={() => void interceptAction('forward', selectedTx)} className="px-2 py-1 rounded border border-green-500/30 bg-green-500/10 text-green-300 text-[10px] font-mono">Forward</button>
+                    <button onClick={() => void interceptAction('edit', selectedTx)} className="px-2 py-1 rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 text-[10px] font-mono">Edit+Queue</button>
+                    <button onClick={() => void interceptAction('drop', selectedTx)} className="px-2 py-1 rounded border border-red-500/30 bg-red-500/10 text-red-300 text-[10px] font-mono">Drop</button>
+                  </div>
+                )}
                 <pre className="mt-2 whitespace-pre-wrap break-words text-[11px] text-reaper-muted max-h-32 overflow-auto">{typeof selectedTx.request_headers === 'string' ? selectedTx.request_headers : JSON.stringify(selectedTx.request_headers || {}, null, 2)}</pre>
                 {selectedTx.request_body && <pre className="mt-2 whitespace-pre-wrap break-words text-[11px] text-emerald-100 max-h-32 overflow-auto">{selectedTx.request_body.slice(0, 3000)}</pre>}
               </div>

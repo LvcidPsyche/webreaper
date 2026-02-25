@@ -103,7 +103,7 @@
   - [x] 10.2 Capture and persist HTTP/HTTPS flows into transaction storage
     - Store request/response metadata, timings, tags, and bounded body captures with redaction/truncation flags.
     - _Requirements: 1.2, 6.4, 13.2, 13.3_
-  - [ ] 10.3 Add interception queue actions (pause/forward/drop/edit) and runtime policy hooks
+  - [x] 10.3 Add interception queue actions (pause/forward/drop/edit) and runtime policy hooks
     - Implement intercept action APIs and tests for edit/release behavior.
     - _Requirements: 6.2, 12.4, 14.3_
 
@@ -116,7 +116,7 @@
   - [x] 12.1 Create Proxy page with history table, filters, and raw request/response viewers
     - Add workspace-scoped search/filter/sort/bulk tag actions for captured traffic.
     - _Requirements: 6.4, 9.1, 9.4_
-  - [ ] 12.2 Implement live interception queue UI controls and status indicators
+  - [x] 12.2 Implement live interception queue UI controls and status indicators
     - Render pause/forward/drop/edit flow actions and proxy listener/intercept states.
     - _Requirements: 6.2, 6.3, 9.2_
   - [ ] 12.3 Add frontend tests for proxy history filtering and live event handling

@@ -34,6 +34,12 @@ class ProxyCaptureRequest(BaseModel):
     intercept_state: str = "none"
 
 
+class ProxyInterceptEditRequest(BaseModel):
+    request: dict | None = None
+    response: dict | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
 def _db(request: Request):
     db = getattr(request.app.state, "db", None)
     if not db:
@@ -144,6 +150,7 @@ async def proxy_history(
     source: str | None = None,
     method: str | None = None,
     host: str | None = None,
+    intercept_state: str | None = None,
     limit: int = Query(default=200, le=1000),
     offset: int = 0,
 ):
@@ -154,6 +161,7 @@ async def proxy_history(
         source=source,
         method=method,
         host=host,
+        intercept_state=intercept_state,
         limit=limit,
         offset=offset,
     )
@@ -165,3 +173,54 @@ async def proxy_history(
                 row[k] = v.isoformat()
     return {"total": data["total"], "offset": offset, "limit": limit, "transactions": rows}
 
+
+@router.get("/intercept/queue")
+async def get_intercept_queue(
+    request: Request,
+    session_id: str | None = None,
+    limit: int = Query(default=200, le=1000),
+):
+    db = _db(request)
+    svc = _service(request)
+    rows = await svc.list_intercept_queue(db, session_id=session_id, limit=limit)
+    for row in rows:
+        v = row.get("created_at")
+        if v is not None and not isinstance(v, str):
+            row["created_at"] = v.isoformat()
+    return {"count": len(rows), "items": rows}
+
+
+@router.post("/intercept/{transaction_id}/forward")
+async def forward_intercept(transaction_id: str, request: Request):
+    db = _db(request)
+    svc = _service(request)
+    tx = await svc.forward_intercept(db, transaction_id)
+    if not tx:
+        raise HTTPException(status_code=404, detail="Intercept transaction not found")
+    return tx
+
+
+@router.post("/intercept/{transaction_id}/drop")
+async def drop_intercept(transaction_id: str, request: Request):
+    db = _db(request)
+    svc = _service(request)
+    tx = await svc.drop_intercept(db, transaction_id)
+    if not tx:
+        raise HTTPException(status_code=404, detail="Intercept transaction not found")
+    return tx
+
+
+@router.post("/intercept/{transaction_id}/edit")
+async def edit_intercept(transaction_id: str, payload: ProxyInterceptEditRequest, request: Request):
+    db = _db(request)
+    svc = _service(request)
+    tx = await svc.edit_intercept(
+        db,
+        transaction_id,
+        request_patch=payload.request,
+        response_patch=payload.response,
+        tags=payload.tags,
+    )
+    if not tx:
+        raise HTTPException(status_code=404, detail="Intercept transaction not found")
+    return tx

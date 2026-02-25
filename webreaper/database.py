@@ -46,6 +46,13 @@ def _decode_json_fields(row: Dict[str, Any], fields: List[str]) -> Dict[str, Any
     return out
 
 
+def _sql_bind_value(value: Any) -> Any:
+    """Serialize Python containers for raw SQL text() updates/inserts."""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value)
+    return value
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -825,7 +832,7 @@ class DatabaseManager:
             if not result.fetchone():
                 return False
             sets = ", ".join([f"{k} = :{k}" for k in kwargs.keys()])
-            params = {"id": proxy_session_id, **kwargs}
+            params = {"id": proxy_session_id, **{k: _sql_bind_value(v) for k, v in kwargs.items()}}
             await session.execute(text(f"UPDATE proxy_sessions SET {sets} WHERE id = :id"), params)
             return True
 
@@ -872,6 +879,26 @@ class DatabaseManager:
             row = result.fetchone()
             return _decode_json_fields(dict(row._mapping), ["request_headers", "response_headers", "tags"]) if row else None
 
+    async def update_http_transaction(self, transaction_id: str, **kwargs) -> bool:
+        """Update an HTTP transaction row."""
+        if not kwargs:
+            return True
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            exists = await session.execute(
+                text("SELECT id FROM http_transactions WHERE id = :id"),
+                {"id": transaction_id},
+            )
+            if not exists.fetchone():
+                return False
+            sets = ", ".join([f"{k} = :{k}" for k in kwargs.keys()])
+            await session.execute(
+                text(f"UPDATE http_transactions SET {sets} WHERE id = :id"),
+                {"id": transaction_id, **{k: _sql_bind_value(v) for k, v in kwargs.items()}},
+            )
+            return True
+
     async def list_http_transactions(
         self,
         *,
@@ -880,6 +907,7 @@ class DatabaseManager:
         source: Optional[str] = None,
         method: Optional[str] = None,
         host: Optional[str] = None,
+        intercept_state: Optional[str] = None,
         limit: int = 200,
         offset: int = 0,
     ) -> Dict[str, Any]:
@@ -896,6 +924,7 @@ class DatabaseManager:
                 "source": source,
                 "method": method.upper() if method else None,
                 "host": host,
+                "intercept_state": intercept_state,
             }.items():
                 if value:
                     sql += f" AND {field} = :{field}"
@@ -934,7 +963,7 @@ class DatabaseManager:
             sets = ", ".join([f"{k} = :{k}" for k in kwargs.keys()])
             await session.execute(
                 text(f"UPDATE repeater_tabs SET {sets} WHERE id = :id"),
-                {"id": tab_id, **kwargs},
+                {"id": tab_id, **{k: _sql_bind_value(v) for k, v in kwargs.items()}},
             )
             return True
 
