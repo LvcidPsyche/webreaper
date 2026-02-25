@@ -56,6 +56,18 @@ class SecurityConfig(BaseModel):
     auto_attack: bool = False  # Actually send payloads
 
 
+class BrowserConfig(BaseModel):
+    """Browser-rendered crawl configuration (Playwright)."""
+    enabled: bool = False
+    timeout_ms: int = Field(default=15000, ge=1000, le=120000)
+    wait_until: str = Field(default="domcontentloaded")  # domcontentloaded | load | networkidle
+    max_requests_per_page: int = Field(default=200, ge=1, le=5000)
+    capture_screenshots: bool = False
+    capture_network_bodies: bool = False
+    blocked_resource_types: List[str] = Field(default_factory=list)
+    fallback_to_http: bool = True
+
+
 class BlogwatcherConfig(BaseModel):
     """Blogwatcher integration configuration."""
     enabled: bool = False
@@ -101,6 +113,7 @@ class Config(BaseModel):
     """Main configuration."""
     crawler: CrawlerConfig = Field(default_factory=CrawlerConfig)
     stealth: StealthConfig = Field(default_factory=StealthConfig)
+    browser: BrowserConfig = Field(default_factory=BrowserConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     blogwatcher: BlogwatcherConfig = Field(default_factory=BlogwatcherConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)

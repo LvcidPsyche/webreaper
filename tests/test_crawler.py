@@ -167,6 +167,7 @@ async def test_save_to_db_persists_rich_links_and_forms(mock_crawler_config, sam
     mock_db.save_forms = AsyncMock()
     mock_db.upsert_endpoints = AsyncMock()
     mock_db.derive_endpoints_from_page = MagicMock(return_value=[{"host": "example.com", "scheme": "https", "method": "GET", "path": "/"}])
+    mock_db.derive_endpoints_from_observed_requests = MagicMock(return_value=[{"host": "api.example.com", "scheme": "https", "method": "GET", "path": "/v1"}])
 
     crawler = Crawler(mock_crawler_config, db_manager=mock_db)
     crawler._crawl_id = "crawl-1"
@@ -182,6 +183,14 @@ async def test_save_to_db_persists_rich_links_and_forms(mock_crawler_config, sam
         depth=0,
     )
     crawler.deep_results["https://example.com"] = deep
+    from webreaper.browser.worker import BrowserCaptureResult
+    crawler.browser_results["https://example.com"] = BrowserCaptureResult(
+        url="https://example.com",
+        final_url="https://example.com",
+        status_code=200,
+        dom_html=sample_html_page,
+        observed_requests=[{"url": "https://api.example.com/v1?q=x", "method": "GET", "source": "browser_network"}],
+    )
 
     result = CrawlResult(
         url="https://example.com",
@@ -210,4 +219,42 @@ async def test_save_to_db_persists_rich_links_and_forms(mock_crawler_config, sam
     save_forms_kwargs = mock_db.save_forms.await_args.kwargs
     assert save_forms_kwargs["forms"][0]["field_count"] >= 1
 
-    mock_db.upsert_endpoints.assert_called_once()
+    assert mock_db.upsert_endpoints.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_crawl_page_browser_failure_falls_back_to_http(mock_crawler_config):
+    mock_crawler_config.browser.enabled = True
+    mock_crawler_config.browser.fallback_to_http = True
+
+    crawler = Crawler(mock_crawler_config)
+    crawler.browser_worker = AsyncMock()
+    crawler.browser_worker.capture = AsyncMock(side_effect=RuntimeError("browser boom"))
+
+    fetcher = AsyncMock()
+    fetcher.fetch = AsyncMock(return_value=(
+        200,
+        {"Content-Type": "text/html"},
+        "<html><head><title>Fallback</title></head><body><a href='/x'>x</a></body></html>",
+    ))
+
+    result = await crawler._crawl_page(fetcher, "https://example.com", 0)
+    assert result is not None
+    assert result.fetch_mode == "http"
+    assert result.title == "Fallback"
+
+
+@pytest.mark.asyncio
+async def test_crawl_page_browser_failure_no_fallback_returns_none(mock_crawler_config):
+    mock_crawler_config.browser.enabled = True
+    mock_crawler_config.browser.fallback_to_http = False
+
+    crawler = Crawler(mock_crawler_config)
+    crawler.browser_worker = AsyncMock()
+    crawler.browser_worker.capture = AsyncMock(side_effect=RuntimeError("browser boom"))
+
+    fetcher = AsyncMock()
+    fetcher.fetch = AsyncMock(return_value=(200, {"Content-Type": "text/html"}, "<html><body>ok</body></html>"))
+
+    result = await crawler._crawl_page(fetcher, "https://example.com", 0)
+    assert result is None

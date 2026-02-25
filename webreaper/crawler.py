@@ -15,6 +15,7 @@ from rich.progress import Progress, TaskID
 import logging
 
 from .config import Config
+from .browser.worker import BrowserCrawlerWorker, BrowserCaptureResult
 from .deep_extractor import DeepExtractor, DeepPageData
 from .fetcher import StealthFetcher
 from .frontier import URLFrontier
@@ -45,6 +46,8 @@ class CrawlResult:
     forms: List[Dict] = field(default_factory=list)
     scripts: List[str] = field(default_factory=list)
     stylesheets: List[str] = field(default_factory=list)
+    fetch_mode: str = "http"
+    final_url: Optional[str] = None
 
 
 class Crawler:
@@ -55,8 +58,10 @@ class Crawler:
         self.db_manager = db_manager
         self.frontier = URLFrontier()
         self.deep_extractor = DeepExtractor()
+        self.browser_worker: Optional[BrowserCrawlerWorker] = BrowserCrawlerWorker() if getattr(config, "browser", None) and config.browser.enabled else None
         self.results: List[CrawlResult] = []
         self.deep_results: Dict[str, DeepPageData] = {}
+        self.browser_results: Dict[str, BrowserCaptureResult] = {}
         self.stats = {
             "pages_crawled": 0,
             "pages_failed": 0,
@@ -252,26 +257,47 @@ class Crawler:
         if status not in (200, 201) or not text:
             return None
 
+        fetch_mode = "http"
+        effective_url = url
+        effective_html = text
+        browser_capture: Optional[BrowserCaptureResult] = None
+        if self.browser_worker:
+            try:
+                browser_capture = await self.browser_worker.capture(url, self.config.browser)
+                if browser_capture.dom_html:
+                    effective_html = browser_capture.dom_html
+                    fetch_mode = "browser"
+                if browser_capture.final_url:
+                    effective_url = browser_capture.final_url
+                if browser_capture.status_code:
+                    status = browser_capture.status_code
+            except Exception as e:
+                logger.error("Browser capture failed for %s: %s", url, e)
+                if not getattr(self.config.browser, "fallback_to_http", True):
+                    return None
+
         deep: Optional[DeepPageData] = None
         try:
             # Deep extraction — gets everything
             deep = self.deep_extractor.extract(
-                url=url,
+                url=effective_url,
                 status_code=status,
-                html=text,
+                html=effective_html,
                 headers=headers,
                 response_time_ms=int(response_time * 1000),
                 depth=depth,
             )
             # Store deep result keyed by URL (latest wins on duplicates)
-            self.deep_results[url] = deep
+            self.deep_results[effective_url] = deep
+            if browser_capture:
+                self.browser_results[effective_url] = browser_capture
 
             # Build backward-compatible CrawlResult from deep data
             internal_urls = [l.url for l in deep.links if not l.is_external]
             external_urls = [l.url for l in deep.links if l.is_external]
 
             result = CrawlResult(
-                url=url,
+                url=effective_url,
                 status=status,
                 title=deep.title,
                 meta_description=deep.meta_description,
@@ -291,28 +317,32 @@ class Crawler:
         except Exception as e:
             logger.exception("Deep extraction failed for %s: %s", url, e)
             # Fall back to shallow extraction to avoid losing a successful fetch.
-            soup = BeautifulSoup(text, 'lxml')
+            soup = BeautifulSoup(effective_html, 'lxml')
             content_text = self._extract_content(soup)
             result = CrawlResult(
-                url=url,
+                url=effective_url,
                 status=status,
                 title=self._extract_title(soup),
                 meta_description=self._extract_meta(soup, "description"),
                 headings=self._extract_headings(soup),
-                links=self._extract_links(soup, url, external=False),
-                external_links=self._extract_links(soup, url, external=True),
-                images=self._extract_images(soup, url),
+                links=self._extract_links(soup, effective_url, external=False),
+                external_links=self._extract_links(soup, effective_url, external=True),
+                images=self._extract_images(soup, effective_url),
                 content_text=content_text,
                 word_count=len(content_text.split()),
                 headers=headers,
                 response_time=response_time,
                 depth=depth,
-                forms=self._extract_forms(soup, url),
+                forms=self._extract_forms(soup, effective_url),
                 scripts=[s.get("src") for s in soup.find_all("script") if s.get("src")],
                 stylesheets=[s.get("href") for s in soup.find_all("link", rel="stylesheet") if s.get("href")],
             )
 
-        self.stats["total_size"] += len(text)
+        # Track fetch mode on result for persistence
+        result.fetch_mode = fetch_mode
+        result.final_url = effective_url
+
+        self.stats["total_size"] += len(effective_html)
         self.stats["external_links"] += len(result.external_links)
 
         return result
@@ -324,13 +354,16 @@ class Crawler:
 
             # Find matching deep result
             deep = self.deep_results.pop(result.url, None)
+            browser_capture = self.browser_results.pop(result.url, None)
 
             page_kwargs = dict(
                 crawl_id=self._crawl_id,
                 workspace_id=self._workspace_id,
                 url=result.url,
+                final_url=getattr(result, "final_url", result.url),
                 domain=parsed.netloc,
                 path=parsed.path,
+                fetch_mode=getattr(result, "fetch_mode", "http"),
                 status_code=result.status,
                 response_time_ms=int(result.response_time * 1000),
                 title=result.title,
@@ -384,6 +417,8 @@ class Crawler:
                     forms_count=len(deep.forms),
                     total_resource_count=deep.total_resource_count,
                 )
+                if browser_capture and browser_capture.observed_requests:
+                    page_kwargs["browser_observed_requests"] = browser_capture.observed_requests[:500]
 
             page_id = await self.db_manager.save_page(**page_kwargs)
 
@@ -426,6 +461,13 @@ class Crawler:
                         endpoints=endpoint_records,
                         workspace_id=self._workspace_id,
                     )
+                    if browser_capture and getattr(self.db_manager, "derive_endpoints_from_observed_requests", None):
+                        await self.db_manager.upsert_endpoints(
+                            crawl_id=self._crawl_id,
+                            page_id=page_id,
+                            endpoints=self.db_manager.derive_endpoints_from_observed_requests(browser_capture.observed_requests),
+                            workspace_id=self._workspace_id,
+                        )
 
                 # Save assets
                 await self._save_assets(page_id, deep)

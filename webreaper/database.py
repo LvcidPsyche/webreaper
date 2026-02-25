@@ -73,9 +73,11 @@ class Page(Base):
     workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
 
     url = Column(Text, nullable=False, index=True)
+    final_url = Column(Text)
     canonical_url = Column(Text)
     domain = Column(String(255), index=True)
     path = Column(Text)
+    fetch_mode = Column(String(20), default='http')  # http | browser
 
     status_code = Column(Integer, index=True)
     content_type = Column(String(100))
@@ -140,6 +142,7 @@ class Page(Base):
     stylesheets_count = Column(Integer, default=0)
     forms_count = Column(Integer, default=0)
     total_resource_count = Column(Integer, default=0)
+    browser_observed_requests = Column(JSON)  # subset of browser network metadata
 
     scraped_at = Column(DateTime(timezone=True), default=_now, index=True)
     depth = Column(Integer, default=0)
@@ -704,6 +707,29 @@ class DatabaseManager:
             content_type = form.get("enctype") or ("application/x-www-form-urlencoded" if method.upper() != "GET" else None)
             _append_from_url(action, method, source="crawl_form", body_param_names=field_names, content_type=content_type)
 
+        return endpoints
+
+    @staticmethod
+    def derive_endpoints_from_observed_requests(observed_requests: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        """Derive endpoint records from browser/proxy observed network requests."""
+        endpoints: List[Dict[str, Any]] = []
+        for req in observed_requests or []:
+            raw_url = req.get("url")
+            if not raw_url:
+                continue
+            parsed = urlparse(raw_url)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                continue
+            endpoints.append({
+                "host": parsed.netloc,
+                "scheme": parsed.scheme,
+                "method": (req.get("method") or "GET").upper(),
+                "path": parsed.path or "/",
+                "query_params": sorted(parse_qs(parsed.query).keys()),
+                "body_param_names": [],
+                "content_types": [],
+                "sources": [req.get("source") or "observed_request"],
+            })
         return endpoints
 
     async def save_finding(

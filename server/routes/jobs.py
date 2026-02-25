@@ -52,6 +52,8 @@ class CrawlJobRequest(BaseModel):
     respect_robots: bool = False
     genre: str | None = None
     security_scan: bool = False
+    browser_render: bool = False
+    browser_fallback_to_http: bool = True
 
 
 class SimpleJobRequest(BaseModel):
@@ -62,6 +64,7 @@ class SimpleJobRequest(BaseModel):
     stealth: bool = False
     security_scan: bool = False
     workspace_id: str | None = None
+    browser_render: bool = False
 
 
 class JobResponse(BaseModel):
@@ -76,7 +79,7 @@ async def start_crawl_simple(req: SimpleJobRequest, request: Request):
     full = CrawlJobRequest(
         urls=[req.url], depth=req.depth, concurrency=req.concurrency,
         stealth=req.stealth, security_scan=req.security_scan,
-        workspace_id=req.workspace_id,
+        workspace_id=req.workspace_id, browser_render=req.browser_render,
     )
     return await start_crawl(full, request)
 
@@ -108,6 +111,8 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
     config.crawler.respect_robots = req.respect_robots
     config.stealth.enabled = req.stealth
     config.stealth.tor_enabled = req.tor
+    config.browser.enabled = req.browser_render
+    config.browser.fallback_to_http = req.browser_fallback_to_http
     if req.genre:
         config.__dict__['genre'] = req.genre
 
@@ -142,6 +147,7 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
         "security_scan": req.security_scan,
         "started_at": datetime.now(timezone.utc).isoformat(),
         "workspace_id": req.workspace_id,
+        "browser_render": req.browser_render,
     }
     request.app.state.active_jobs[job_id] = crawler
     metrics = getattr(request.app.state, "metrics", None)
@@ -209,6 +215,7 @@ async def list_jobs(request: Request):
             "concurrency": meta.get("concurrency", 10),
             "stealth": meta.get("stealth", False),
             "security_scan": meta.get("security_scan", False),
+            "browser_render": meta.get("browser_render", False),
             "pages_crawled": stats.get("pages_crawled", 0),
             "queue_size": stats.get("queue_size", 0),
             "current_url": stats.get("current_url", ""),
@@ -238,6 +245,7 @@ async def list_jobs(request: Request):
                     "concurrency": 10,
                     "stealth": False,
                     "security_scan": False,
+                    "browser_render": False,
                     "pages_crawled": r.get("pages_crawled", 0),
                     "workspace_id": r.get("workspace_id"),
                     "pages_total": r.get("pages_total"),

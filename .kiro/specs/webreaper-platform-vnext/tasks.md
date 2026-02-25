@@ -74,14 +74,14 @@
     - Replace ad hoc target generation with endpoint inventory integration.
     - _Requirements: 7.1, 8.1, 8.2_
 
-- [ ] 8. Implement browser-rendered crawl worker (Playwright) and integrate with orchestrator
-  - [ ] 8.1 Build browser worker service and worker adapter interface
+- [x] 8. Implement browser-rendered crawl worker (Playwright) and integrate with orchestrator
+  - [x] 8.1 Build browser worker service and worker adapter interface
     - Create Playwright-based page fetch/extract service with configurable wait policy, timeouts, and resource blocking.
     - _Requirements: 3.1, 3.4, 10.1_
-  - [ ] 8.2 Capture DOM/network artifacts and persist browser-discovered requests/routes
+  - [x] 8.2 Capture DOM/network artifacts and persist browser-discovered requests/routes
     - Persist final DOM snapshot metadata, observed requests, and browser-only links/forms for later analysis.
     - _Requirements: 3.1, 3.3, 4.1, 7.1_
-  - [ ] 8.3 Add browser fallback and failure recording behavior
+  - [x] 8.3 Add browser fallback and failure recording behavior
     - Implement optional HTTP fallback when browser rendering fails, with explicit error reasons and tests.
     - _Requirements: 3.2, 14.2, 15.2_
 
