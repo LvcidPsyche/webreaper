@@ -97,10 +97,10 @@
     - _Requirements: 5.1, 5.2, 9.4, 11.4_
 
 - [ ] 10. Implement proxy service MVP (Burp-like interception core)
-  - [ ] 10.1 Build proxy listener lifecycle service and control APIs
+  - [x] 10.1 Build proxy listener lifecycle service and control APIs
     - Add start/stop/status endpoints and persisted proxy session configuration/state.
     - _Requirements: 6.1, 6.3, 14.1_
-  - [ ] 10.2 Capture and persist HTTP/HTTPS flows into transaction storage
+  - [x] 10.2 Capture and persist HTTP/HTTPS flows into transaction storage
     - Store request/response metadata, timings, tags, and bounded body captures with redaction/truncation flags.
     - _Requirements: 1.2, 6.4, 13.2, 13.3_
   - [ ] 10.3 Add interception queue actions (pause/forward/drop/edit) and runtime policy hooks

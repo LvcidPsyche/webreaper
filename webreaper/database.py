@@ -329,6 +329,58 @@ class Endpoint(Base):
     last_seen_at = Column(DateTime(timezone=True), default=_now, index=True)
 
 
+class ProxySession(Base):
+    """Proxy listener session configuration/state."""
+    __tablename__ = 'proxy_sessions'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
+    name = Column(String(255))
+    host = Column(String(255), default='127.0.0.1')
+    port = Column(Integer, default=8080)
+    intercept_enabled = Column(Boolean, default=False, index=True)
+    tls_intercept_enabled = Column(Boolean, default=False)
+    body_capture_limit_kb = Column(Integer, default=512)
+    include_hosts = Column(JSON)
+    exclude_hosts = Column(JSON)
+    status = Column(String(20), default='stopped', index=True)  # running|stopped|error
+    started_at = Column(DateTime(timezone=True))
+    stopped_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=_now, index=True)
+    updated_at = Column(DateTime(timezone=True), default=_now)
+
+
+class HttpTransaction(Base):
+    """Captured HTTP transaction from proxy/repeater/intruder/scanner/browser."""
+    __tablename__ = 'http_transactions'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
+    crawl_id = Column(String(36), ForeignKey('crawls.id', ondelete='CASCADE'), nullable=True, index=True)
+    page_id = Column(String(36), ForeignKey('pages.id', ondelete='CASCADE'), nullable=True)
+    proxy_session_id = Column(String(36), ForeignKey('proxy_sessions.id', ondelete='SET NULL'), nullable=True, index=True)
+
+    source = Column(String(20), default='proxy', index=True)  # proxy|repeater|intruder|scanner|browser
+    method = Column(String(16), nullable=False, index=True)
+    scheme = Column(String(10), nullable=False)
+    host = Column(String(255), nullable=False, index=True)
+    path = Column(Text, nullable=False, index=True)
+    query = Column(Text)
+    url = Column(Text, nullable=False)
+
+    request_headers = Column(JSON)
+    request_body = Column(Text)
+    response_status = Column(Integer, index=True)
+    response_headers = Column(JSON)
+    response_body = Column(Text)
+    duration_ms = Column(Integer)
+    tags = Column(JSON)
+    intercept_state = Column(String(20), default='none', index=True)  # none|queued|forwarded|dropped|edited
+    truncated = Column(Boolean, default=False)
+
+    created_at = Column(DateTime(timezone=True), default=_now, index=True)
+
+
 class DashboardMetric(Base):
     """Real-time dashboard analytics data."""
     __tablename__ = 'dashboard_metrics'
@@ -695,6 +747,99 @@ class DatabaseManager:
                         sources=_uniq(ep.get("sources")),
                     )
                 )
+
+    async def create_proxy_session(self, **kwargs) -> str:
+        """Create and persist a proxy session row."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            obj = ProxySession(**kwargs)
+            session.add(obj)
+            await session.flush()
+            return str(obj.id)
+
+    async def update_proxy_session(self, proxy_session_id: str, **kwargs) -> bool:
+        """Update a proxy session row."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            result = await session.execute(
+                text("SELECT id FROM proxy_sessions WHERE id = :id"),
+                {"id": proxy_session_id},
+            )
+            if not result.fetchone():
+                return False
+            sets = ", ".join([f"{k} = :{k}" for k in kwargs.keys()])
+            params = {"id": proxy_session_id, **kwargs}
+            await session.execute(text(f"UPDATE proxy_sessions SET {sets} WHERE id = :id"), params)
+            return True
+
+    async def get_proxy_session(self, proxy_session_id: str) -> Optional[Dict[str, Any]]:
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            result = await session.execute(text("SELECT * FROM proxy_sessions WHERE id = :id"), {"id": proxy_session_id})
+            row = result.fetchone()
+            return dict(row._mapping) if row else None
+
+    async def list_proxy_sessions(self, workspace_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            if workspace_id:
+                result = await session.execute(
+                    text("SELECT * FROM proxy_sessions WHERE workspace_id = :wid ORDER BY created_at DESC"),
+                    {"wid": workspace_id},
+                )
+            else:
+                result = await session.execute(text("SELECT * FROM proxy_sessions ORDER BY created_at DESC"))
+            return [dict(r._mapping) for r in result.fetchall()]
+
+    async def save_http_transaction(self, record: Dict[str, Any]) -> str:
+        """Persist a captured HTTP transaction."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            obj = HttpTransaction(**record)
+            session.add(obj)
+            await session.flush()
+            return str(obj.id)
+
+    async def list_http_transactions(
+        self,
+        *,
+        workspace_id: Optional[str] = None,
+        proxy_session_id: Optional[str] = None,
+        source: Optional[str] = None,
+        method: Optional[str] = None,
+        host: Optional[str] = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """List transactions with simple filters."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            sql = "SELECT * FROM http_transactions WHERE 1=1"
+            count_sql = "SELECT COUNT(*) FROM http_transactions WHERE 1=1"
+            params: Dict[str, Any] = {}
+            for field, value in {
+                "workspace_id": workspace_id,
+                "proxy_session_id": proxy_session_id,
+                "source": source,
+                "method": method.upper() if method else None,
+                "host": host,
+            }.items():
+                if value:
+                    sql += f" AND {field} = :{field}"
+                    count_sql += f" AND {field} = :{field}"
+                    params[field] = value
+            sql += " ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+            params["limit"] = limit
+            params["offset"] = offset
+            rows = [dict(r._mapping) for r in (await session.execute(text(sql), params)).fetchall()]
+            total = (await session.execute(text(count_sql), params)).scalar_one()
+            return {"total": total, "transactions": rows}
 
     @staticmethod
     def derive_endpoints_from_page(url: str, forms: Optional[List[Dict[str, Any]]] = None, links: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:

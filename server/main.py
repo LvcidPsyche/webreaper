@@ -11,7 +11,8 @@ import uvicorn
 from webreaper.database import get_db_manager
 from webreaper.logging_config import configure_logging, get_logger
 from webreaper.migrations import ensure_database_schema
-from server.routes import jobs, results, security, stream, chat, agents, workstation, license, data, analysis, workspaces
+from webreaper.proxy.service import ProxyService
+from server.routes import jobs, results, security, stream, chat, agents, workstation, license, data, analysis, workspaces, proxy
 from server.services.log_buffer import LogBuffer
 from server.services.metrics import MetricsService
 
@@ -20,6 +21,7 @@ logger = get_logger("webreaper.server")
 
 log_buffer = LogBuffer(max_size=1000)
 metrics_service = MetricsService()
+proxy_service = ProxyService()
 
 
 @asynccontextmanager
@@ -33,6 +35,7 @@ async def lifespan(app: FastAPI):
     app.state.log_buffer = log_buffer
     app.state.metrics = metrics_service
     app.state.active_jobs = {}
+    app.state.proxy_service = proxy_service
     yield
     logger.info("WebReaper API shutting down...")
     for job_id, job in app.state.active_jobs.items():
@@ -70,6 +73,7 @@ app.include_router(license.router, prefix="/api/license", tags=["license"])
 app.include_router(data.router, prefix="/api/data", tags=["data"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
 app.include_router(workspaces.router, prefix="/api/workspaces", tags=["workspaces"])
+app.include_router(proxy.router, prefix="/api/proxy", tags=["proxy"])
 
 
 @app.get("/health")
