@@ -15,6 +15,7 @@ fake-useragent>=1.4.0
 # Database — SQLite (default) or PostgreSQL (optional)
 sqlalchemy>=2.0.0
 aiosqlite>=0.19.0
+alembic>=1.13.0
 
 # PostgreSQL (optional — only needed if DATABASE_URL uses postgresql+asyncpg://)
 # asyncpg>=0.29.0

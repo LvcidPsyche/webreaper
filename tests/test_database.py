@@ -3,6 +3,7 @@
 import os
 import pytest
 import pytest_asyncio
+from sqlalchemy import text
 
 
 # ── SQLite default ──────────────────────────────────────────
@@ -102,3 +103,115 @@ async def test_complete_crawl_updates_stats(temp_db):
 async def test_create_tables_idempotent(temp_db):
     """Calling create_tables twice should not raise."""
     await temp_db.create_tables()  # Already called in fixture; second call is safe
+
+
+@pytest.mark.asyncio
+async def test_save_links_supports_rich_metadata(temp_db):
+    crawl_id = await temp_db.create_crawl(target_url="https://example.com")
+    page_id = await temp_db.save_page(
+        crawl_id=crawl_id,
+        url="https://example.com/page",
+        domain="example.com",
+        path="/page",
+        status_code=200,
+        response_time_ms=50,
+        title="Page",
+        meta_description=None,
+        content_text="text",
+        word_count=1,
+        headings=[],
+        headings_count=0,
+        images_count=0,
+        links_count=2,
+        external_links_count=1,
+        h1=None,
+        h2s=[],
+        response_headers={},
+        depth=0,
+    )
+
+    await temp_db.save_links(
+        crawl_id=crawl_id,
+        page_id=page_id,
+        links=[
+            {
+                "url": "https://example.com/about",
+                "is_external": False,
+                "anchor_text": "About",
+                "rel_attributes": ["nofollow"],
+                "link_type": "nav",
+            },
+            {
+                "url": "https://external.test/x",
+                "is_external": True,
+                "anchor_text": "Offsite",
+                "rel_attributes": [],
+                "link_type": "text",
+            },
+        ],
+    )
+
+    async with temp_db.get_session() as session:
+        result = await session.execute(
+            text("SELECT target_url, is_external, anchor_text, link_type FROM links WHERE source_page_id = :pid ORDER BY target_url"),
+            {"pid": page_id},
+        )
+        rows = [dict(r._mapping) for r in result.fetchall()]
+
+    assert len(rows) == 2
+    assert rows[0]["anchor_text"] in {"About", "Offsite"}
+    assert any(r["link_type"] == "nav" for r in rows)
+    assert any(r["is_external"] for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_save_forms_persists_field_metadata(temp_db):
+    crawl_id = await temp_db.create_crawl(target_url="https://example.com")
+    page_id = await temp_db.save_page(
+        crawl_id=crawl_id,
+        url="https://example.com/form",
+        domain="example.com",
+        path="/form",
+        status_code=200,
+        response_time_ms=50,
+        title="Form Page",
+        meta_description=None,
+        content_text="form",
+        word_count=1,
+        headings=[],
+        headings_count=0,
+        images_count=0,
+        links_count=0,
+        external_links_count=0,
+        h1=None,
+        h2s=[],
+        response_headers={},
+        depth=0,
+    )
+
+    await temp_db.save_forms(
+        crawl_id=crawl_id,
+        page_id=page_id,
+        forms=[
+            {
+                "action": "https://example.com/submit",
+                "method": "post",
+                "fields": [{"name": "email", "type": "email"}],
+                "field_count": 1,
+                "csrf_protected": True,
+                "has_captcha": False,
+            }
+        ],
+    )
+
+    async with temp_db.get_session() as session:
+        result = await session.execute(
+            text("SELECT action_url, method, fields_count, csrf_protected, captcha_present FROM forms WHERE page_id = :pid"),
+            {"pid": page_id},
+        )
+        row = dict(result.fetchone()._mapping)
+
+    assert row["action_url"] == "https://example.com/submit"
+    assert row["method"] == "POST"
+    assert row["fields_count"] == 1
+    assert row["csrf_protected"] in (1, True)

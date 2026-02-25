@@ -24,7 +24,7 @@ export default function LogsPage() {
     setLogs((prev) => [...prev, entry].slice(-MAX_LOGS));
   }, [paused]);
 
-  useSSE<LogEntry>({ path: '/stream/logs', onEvent: handleLog });
+  useSSE<LogEntry>({ path: '/stream/logs', eventNames: 'log', onEvent: handleLog });
 
   useEffect(() => {
     if (autoScroll.current && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;

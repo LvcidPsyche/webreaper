@@ -23,6 +23,7 @@ export default function DashboardPage() {
 
   useSSE<MetricsSnapshot>({
     path: '/stream/metrics',
+    eventNames: 'metrics',
     onEvent: handleMetrics,
   });
 

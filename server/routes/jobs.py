@@ -14,8 +14,35 @@ from webreaper.usage import can_crawl, add_pages
 router = APIRouter()
 
 
+def _make_metrics_callback(metrics, active_jobs_ref):
+    """Build a crawler metrics callback that updates MetricsService gauges/counters."""
+    def _on_metrics(event: dict):
+        if not metrics:
+            return
+        page_delta = int(event.get("page_delta", 0) or 0)
+        fail_delta = int(event.get("fail_delta", 0) or 0)
+        bytes_delta = int(event.get("bytes_delta", 0) or 0)
+        if page_delta:
+            metrics.increment("pages_crawled", page_delta)
+        if fail_delta:
+            metrics.increment("pages_failed", fail_delta)
+        if bytes_delta:
+            metrics.increment("bytes_downloaded", bytes_delta)
+
+        status_code = event.get("status_code")
+        if isinstance(status_code, int):
+            metrics.increment_status(status_code)
+
+        metrics.set_gauge("queue_depth", float(event.get("queue_size", 0) or 0))
+        metrics.set_gauge("requests_per_second", float(event.get("requests_per_second", 0.0) or 0.0))
+        if hasattr(metrics, "set_counter"):
+            metrics.set_counter("active_jobs", len(active_jobs_ref))
+    return _on_metrics
+
+
 class CrawlJobRequest(BaseModel):
     urls: list[str]
+    workspace_id: str | None = None
     depth: int = 3
     max_pages: int = 1000
     concurrency: int = 100
@@ -34,6 +61,7 @@ class SimpleJobRequest(BaseModel):
     concurrency: int = 10
     stealth: bool = False
     security_scan: bool = False
+    workspace_id: str | None = None
 
 
 class JobResponse(BaseModel):
@@ -48,6 +76,7 @@ async def start_crawl_simple(req: SimpleJobRequest, request: Request):
     full = CrawlJobRequest(
         urls=[req.url], depth=req.depth, concurrency=req.concurrency,
         stealth=req.stealth, security_scan=req.security_scan,
+        workspace_id=req.workspace_id,
     )
     return await start_crawl(full, request)
 
@@ -84,6 +113,11 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
 
     db = request.app.state.db
     crawler = Crawler(config, db_manager=db)
+    crawler._workspace_id = req.workspace_id
+    crawler._metrics_callback = _make_metrics_callback(
+        getattr(request.app.state, "metrics", None),
+        request.app.state.active_jobs,
+    )
 
     async def run_job():
         try:
@@ -96,6 +130,9 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
             request.app.state.log_buffer.add("error", f"Job {job_id} failed: {e}")
         finally:
             request.app.state.active_jobs.pop(job_id, None)
+            metrics = getattr(request.app.state, "metrics", None)
+            if metrics and hasattr(metrics, "set_counter"):
+                metrics.set_counter("active_jobs", len(request.app.state.active_jobs))
 
     crawler._meta = {
         "url": req.urls[0] if req.urls else "",
@@ -104,8 +141,12 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
         "stealth": req.stealth,
         "security_scan": req.security_scan,
         "started_at": datetime.now(timezone.utc).isoformat(),
+        "workspace_id": req.workspace_id,
     }
     request.app.state.active_jobs[job_id] = crawler
+    metrics = getattr(request.app.state, "metrics", None)
+    if metrics and hasattr(metrics, "set_counter"):
+        metrics.set_counter("active_jobs", len(request.app.state.active_jobs))
     asyncio.create_task(run_job())
 
     return JobResponse(job_id=job_id, status="running", target_urls=req.urls)
@@ -169,6 +210,9 @@ async def list_jobs(request: Request):
             "stealth": meta.get("stealth", False),
             "security_scan": meta.get("security_scan", False),
             "pages_crawled": stats.get("pages_crawled", 0),
+            "queue_size": stats.get("queue_size", 0),
+            "current_url": stats.get("current_url", ""),
+            "workspace_id": meta.get("workspace_id"),
             "pages_total": None,
             "started_at": meta.get("started_at"),
             "completed_at": None,
@@ -187,13 +231,15 @@ async def list_jobs(request: Request):
                     continue
                 result.append({
                     "id": rid,
-                    "url": r.get("start_url", ""),
+                    # compatibility with DB helper returning target_url
+                    "url": r.get("target_url", r.get("start_url", "")),
                     "status": r.get("status", "completed"),
                     "depth": r.get("max_depth", 3),
                     "concurrency": 10,
                     "stealth": False,
                     "security_scan": False,
                     "pages_crawled": r.get("pages_crawled", 0),
+                    "workspace_id": r.get("workspace_id"),
                     "pages_total": r.get("pages_total"),
                     "started_at": r.get("started_at"),
                     "completed_at": r.get("completed_at"),

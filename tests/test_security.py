@@ -144,3 +144,34 @@ def test_generate_report_counts(scanner):
     assert report["total_findings"] == 4
     assert report["severity_breakdown"]["High"] == 2
     assert report["severity_breakdown"]["Medium"] == 1
+
+
+def test_scan_form_supports_deep_extractor_fields_schema(scanner):
+    form = {
+        "action": "https://example.com/submit",
+        "method": "POST",
+        "fields": [
+            {"name": "email", "type": "email"},
+            {"name": "csrf_token", "type": "hidden"},
+        ],
+    }
+    findings = scanner._scan_form("https://example.com/form", form)
+    # CSRF token is present, so no CSRF warning should be emitted.
+    assert not any(f["type"] == "CSRF" for f in findings)
+
+
+@pytest.mark.asyncio
+async def test_active_scan_aggressive_no_logger_nameerror(scanner):
+    class DummySession:
+        async def get(self, *args, **kwargs):
+            class Resp:
+                text = ""
+            return Resp()
+
+    findings = await scanner.active_scan(
+        "https://example.com/no-query",
+        forms=[],
+        session=DummySession(),
+        aggressive=True,
+    )
+    assert findings == []

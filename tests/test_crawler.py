@@ -132,3 +132,78 @@ async def test_db_save_error_is_logged_not_swallowed(mock_crawler_config, caplog
         await crawler._save_to_db(result)
 
     assert "DB save error" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_crawl_page_falls_back_when_deep_extraction_fails(mock_crawler_config, caplog):
+    import logging
+
+    crawler = Crawler(mock_crawler_config)
+    crawler.deep_extractor.extract = MagicMock(side_effect=RuntimeError("extract boom"))
+
+    fetcher = AsyncMock()
+    fetcher.fetch = AsyncMock(return_value=(
+        200,
+        {"Content-Type": "text/html"},
+        "<html><head><title>X</title></head><body><h1>Hello</h1><a href='/a'>A</a></body></html>",
+    ))
+
+    with caplog.at_level(logging.ERROR, logger="webreaper.crawler"):
+        result = await crawler._crawl_page(fetcher, "https://example.com", 0)
+
+    assert result is not None
+    assert result.title == "X"
+    assert any("/a" in u for u in result.links)
+    assert "Deep extraction failed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_save_to_db_persists_rich_links_and_forms(mock_crawler_config, sample_html_page, sample_headers):
+    from webreaper.deep_extractor import DeepExtractor
+
+    mock_db = AsyncMock()
+    mock_db.save_page = AsyncMock(return_value="page-1")
+    mock_db.save_links = AsyncMock()
+    mock_db.save_forms = AsyncMock()
+
+    crawler = Crawler(mock_crawler_config, db_manager=mock_db)
+    crawler._crawl_id = "crawl-1"
+    crawler._save_assets = AsyncMock()
+    crawler._save_technologies = AsyncMock()
+
+    deep = DeepExtractor().extract(
+        url="https://example.com",
+        status_code=200,
+        html=sample_html_page,
+        headers=sample_headers,
+        response_time_ms=10,
+        depth=0,
+    )
+    crawler.deep_results["https://example.com"] = deep
+
+    result = CrawlResult(
+        url="https://example.com",
+        status=200,
+        title=deep.title,
+        meta_description=deep.meta_description,
+        headings=deep.headings,
+        links=[l.url for l in deep.links if not l.is_external],
+        external_links=[l.url for l in deep.links if l.is_external],
+        images=[a.url for a in deep.images],
+        content_text=deep.content_text,
+        word_count=deep.word_count,
+        headers=sample_headers,
+        response_time=0.01,
+        depth=0,
+        forms=deep.forms,
+    )
+
+    await crawler._save_to_db(result)
+
+    mock_db.save_links.assert_called_once()
+    save_links_kwargs = mock_db.save_links.await_args.kwargs
+    assert any(isinstance(item, dict) and "anchor_text" in item for item in save_links_kwargs["links"])
+
+    mock_db.save_forms.assert_called_once()
+    save_forms_kwargs = mock_db.save_forms.await_args.kwargs
+    assert save_forms_kwargs["forms"][0]["field_count"] >= 1

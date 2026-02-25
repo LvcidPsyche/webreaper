@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Request, HTTPException, Query
 from pydantic import BaseModel
+import httpx
 
 router = APIRouter()
 
@@ -9,6 +10,7 @@ router = APIRouter()
 class ScanRequest(BaseModel):
     url: str
     auto_attack: bool = False
+    workspace_id: str | None = None
 
 
 @router.get("")
@@ -16,6 +18,7 @@ class ScanRequest(BaseModel):
 async def get_findings(
     request: Request,
     crawl_id: str | None = None,
+    workspace_id: str | None = None,
     severity: str | None = None,
     finding_type: str | None = None,
     limit: int = Query(default=200, le=1000),
@@ -30,6 +33,8 @@ async def get_findings(
         from sqlalchemy import select
         from webreaper.database import SecurityFinding
         query = select(SecurityFinding)
+        if workspace_id:
+            query = query.where(SecurityFinding.workspace_id == workspace_id)
         if crawl_id:
             query = query.where(SecurityFinding.crawl_id == crawl_id)
         if severity:
@@ -52,6 +57,7 @@ async def get_findings(
                 "remediation": f.remediation,
                 "found_at": f.discovered_at.isoformat() if f.discovered_at else "",
                 "crawl_id": str(f.crawl_id) if f.crawl_id else None,
+                "workspace_id": str(f.workspace_id) if f.workspace_id else None,
             }
             for f in findings
         ]
@@ -64,6 +70,7 @@ async def scan_url(req: ScanRequest, request: Request):
     from webreaper.fetcher import StealthFetcher
     from webreaper.config import StealthConfig
     from webreaper.modules.security import SecurityScanner
+    from webreaper.deep_extractor import DeepExtractor
     import uuid
 
     try:
@@ -71,8 +78,31 @@ async def scan_url(req: ScanRequest, request: Request):
         async with StealthFetcher(fetcher_config) as fetcher:
             status, headers, body = await fetcher.fetch(req.url)
 
+        extractor = DeepExtractor()
+        try:
+            deep = extractor.extract(
+                url=req.url,
+                status_code=status,
+                html=body or "",
+                headers=headers or {},
+                response_time_ms=0,
+                depth=0,
+            )
+            forms = deep.forms
+        except Exception:
+            forms = []
+
         scanner = SecurityScanner(auto_attack=req.auto_attack)
-        findings = scanner.scan(req.url, headers, body, [])
+        findings = scanner.scan(req.url, headers, body, forms)
+        if req.auto_attack:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                active_findings = await scanner.active_scan(
+                    req.url,
+                    forms,
+                    session=client,
+                    aggressive=True,
+                )
+            findings.extend(active_findings)
         tech = scanner.fingerprint_tech(req.url, headers, body)
 
         # Persist findings to DB
@@ -92,6 +122,7 @@ async def scan_url(req: ScanRequest, request: Request):
                         parameter=f.get("parameter"),
                         remediation=f.get("remediation"),
                         discovered_at=datetime.now(timezone.utc),
+                        workspace_id=req.workspace_id,
                     )
                     session.add(sf)
                 await session.commit()

@@ -1,10 +1,14 @@
 """Security testing module - Burp Suite style features."""
 
 import asyncio
+import logging
 import re
 import time
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlencode, parse_qs, urlparse, urlunparse
+
+
+logger = logging.getLogger("webreaper.security")
 
 
 class SecurityScanner:
@@ -171,11 +175,15 @@ class SecurityScanner:
     def _scan_form(self, page_url: str, form: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Scan a form for vulnerabilities."""
         findings = []
+        inputs = form.get("inputs")
+        if inputs is None:
+            # Deep extractor form schema uses `fields`
+            inputs = form.get("fields", [])
         
         # Check for CSRF protection
         has_csrf = any(
-            inp.get("name", "").lower() in ["csrf", "token", "_token"]
-            for inp in form.get("inputs", [])
+            inp.get("name", "").lower() in ["csrf", "token", "_token", "csrf_token", "_csrf", "csrfmiddlewaretoken", "authenticity_token"]
+            for inp in inputs
         )
         
         if not has_csrf and form.get("method") == "POST":
@@ -189,7 +197,7 @@ class SecurityScanner:
             })
         
         # Check for autocomplete on sensitive fields
-        for inp in form.get("inputs", []):
+        for inp in inputs:
             if inp.get("type") in ["password", "token", "secret"]:
                 findings.append({
                     "type": "Sensitive Field",

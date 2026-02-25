@@ -28,6 +28,11 @@ class MetricsService:
             if counter in self._counters:
                 self._counters[counter] += value
 
+    def set_counter(self, counter: str, value: int):
+        with self._lock:
+            if counter in self._counters:
+                self._counters[counter] = int(value)
+
     def increment_status(self, code: int):
         """Track HTTP status code distribution for dashboard donut chart."""
         bucket = f"{code // 100}xx"

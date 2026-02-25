@@ -18,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   const { connected } = useSSE<MetricsSnapshot>({
     path: '/stream/metrics',
+    eventNames: 'metrics',
     onEvent: handleMetrics,
   });
 

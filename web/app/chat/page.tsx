@@ -19,6 +19,7 @@ export default function ChatPage() {
     approveToolCall,
     denyToolCall,
     selectProvider,
+    typing,
   } = useAgent();
 
   const [showConnect, setShowConnect] = useState(false);
@@ -78,6 +79,7 @@ export default function ChatPage() {
           onApproveToolCall={approveToolCall}
           onDenyToolCall={denyToolCall}
           connected={connected}
+          typing={typing}
         />
       </div>
 

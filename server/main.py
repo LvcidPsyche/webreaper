@@ -10,7 +10,8 @@ import uvicorn
 
 from webreaper.database import get_db_manager
 from webreaper.logging_config import configure_logging, get_logger
-from server.routes import jobs, results, security, stream, chat, agents, workstation, license, data
+from webreaper.migrations import ensure_database_schema
+from server.routes import jobs, results, security, stream, chat, agents, workstation, license, data, analysis, workspaces
 from server.services.log_buffer import LogBuffer
 from server.services.metrics import MetricsService
 
@@ -28,6 +29,7 @@ async def lifespan(app: FastAPI):
     app.state.db = get_db_manager()
     if app.state.db:
         await app.state.db.init_async()
+        await ensure_database_schema(app.state.db)
     app.state.log_buffer = log_buffer
     app.state.metrics = metrics_service
     app.state.active_jobs = {}
@@ -66,6 +68,8 @@ app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
 app.include_router(workstation.router, prefix="/api/workstation", tags=["workstation"])
 app.include_router(license.router, prefix="/api/license", tags=["license"])
 app.include_router(data.router, prefix="/api/data", tags=["data"])
+app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
+app.include_router(workspaces.router, prefix="/api/workspaces", tags=["workspaces"])
 
 
 @app.get("/health")

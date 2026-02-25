@@ -69,7 +69,12 @@ class AgentGateway:
 
                 if permission == PermissionLevel.BLOCKED:
                     log_audit_event(tool_name, "execute", "blocked", params=chunk.get("params"))
-                    yield {"type": "tool_denied", "tool": tool_name, "reason": "Blocked by policy"}
+                    yield {
+                        "type": "tool_denied",
+                        "tool": tool_name,
+                        "reason": "Blocked by policy",
+                        "id": chunk.get("id"),
+                    }
                     continue
 
                 if permission == PermissionLevel.REQUIRES_APPROVAL:
@@ -82,17 +87,27 @@ class AgentGateway:
                     approved = await self._wait_for_approval(chunk["id"])
                     if not approved:
                         log_audit_event(tool_name, "execute", "denied", params=chunk.get("params"))
-                        yield {"type": "tool_denied", "tool": tool_name, "reason": "User denied"}
+                        yield {
+                            "type": "tool_denied",
+                            "tool": tool_name,
+                            "reason": "User denied",
+                            "id": chunk.get("id"),
+                        }
                         continue
 
-                yield {"type": "tool_executing", "tool": tool_name, "params": chunk["params"]}
+                yield {
+                    "type": "tool_executing",
+                    "tool": tool_name,
+                    "params": chunk["params"],
+                    "id": chunk.get("id"),
+                }
                 try:
                     result = await execute_tool(tool_name, chunk["params"])
                     log_audit_event(tool_name, "execute", "success", params=chunk.get("params"))
                     yield {"type": "tool_result", "tool": tool_name, "result": result, "id": chunk.get("id")}
                 except Exception as e:
                     log_audit_event(tool_name, "execute", "error", params=chunk.get("params"))
-                    yield {"type": "tool_error", "tool": tool_name, "error": str(e)}
+                    yield {"type": "tool_error", "tool": tool_name, "error": str(e), "id": chunk.get("id")}
             else:
                 yield chunk
 

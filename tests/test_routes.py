@@ -98,3 +98,92 @@ def test_list_jobs_empty(client):
 def test_stop_nonexistent_job(client):
     resp = client.delete("/api/jobs/nonexistent-job")
     assert resp.status_code == 404
+
+
+def test_jobs_metrics_callback_updates_metrics_service():
+    from server.routes.jobs import _make_metrics_callback
+    from server.services.metrics import MetricsService
+
+    metrics = MetricsService()
+    active_jobs = {"a": object(), "b": object()}
+    cb = _make_metrics_callback(metrics, active_jobs)
+
+    cb({
+        "page_delta": 2,
+        "fail_delta": 1,
+        "bytes_delta": 128,
+        "status_code": 200,
+        "queue_size": 7,
+        "requests_per_second": 4.5,
+    })
+
+    snap = metrics.snapshot()
+    assert snap["pages_crawled"] == 2
+    assert snap["error_rate"] > 0
+    assert snap["active_jobs"] == 2
+    assert snap["queue_depth"] == 7
+    assert snap["requests_per_second"] == 4.5
+    assert snap["status_codes"]["2xx"] == 1
+
+
+def test_list_jobs_uses_target_url_from_db_rows(client):
+    client.app.state.db.get_crawl_stats = AsyncMock(return_value=[
+        {
+            "id": "crawl-1",
+            "target_url": "https://example.com",
+            "status": "completed",
+            "pages_crawled": 10,
+            "started_at": "2026-02-25T00:00:00Z",
+            "completed_at": "2026-02-25T00:01:00Z",
+        }
+    ])
+    resp = client.get("/api/jobs")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert any(row["url"] == "https://example.com" for row in data)
+
+
+def test_security_scan_auto_attack_invokes_active_scan(client):
+    called = {"active": False}
+    client.app.state.db = None
+
+    class DummyFetcher:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def fetch(self, url):
+            return 200, {"Content-Type": "text/html"}, "<html><body><form method='POST'><input name='q'></form></body></html>"
+
+    class DummyDeepExtractor:
+        def extract(self, **kwargs):
+            return type("Deep", (), {"forms": [{"method": "POST", "fields": [{"name": "q", "type": "text"}]}]})()
+
+    class DummyScanner:
+        def __init__(self, auto_attack=False):
+            self.auto_attack = auto_attack
+
+        def scan(self, url, headers, body, forms):
+            return [{"type": "Passive", "severity": "Low", "url": url}]
+
+        async def active_scan(self, url, forms, session, aggressive=False):
+            called["active"] = aggressive is True
+            return [{"type": "SQL Injection", "severity": "Critical", "url": url}]
+
+        def fingerprint_tech(self, url, headers, body):
+            return {"Framework": ["Next.js"]}
+
+    with patch("webreaper.fetcher.StealthFetcher", DummyFetcher), \
+         patch("webreaper.deep_extractor.DeepExtractor", DummyDeepExtractor), \
+         patch("webreaper.modules.security.SecurityScanner", DummyScanner):
+        resp = client.post("/api/security/scan", json={"url": "https://example.com/test", "auto_attack": True})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert called["active"] is True
+    assert data["findings_count"] == 2

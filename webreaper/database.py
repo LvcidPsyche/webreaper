@@ -41,6 +41,7 @@ class Crawl(Base):
     started_at = Column(DateTime(timezone=True), default=_now)
     completed_at = Column(DateTime(timezone=True), nullable=True)
     status = Column(String(20), default='running')
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
     target_url = Column(Text, nullable=False)
     config = Column(JSON)
 
@@ -59,6 +60,7 @@ class Crawl(Base):
     pages = relationship("Page", back_populates="crawl", cascade="all, delete-orphan")
     links = relationship("Link", back_populates="crawl", cascade="all, delete-orphan")
     findings = relationship("SecurityFinding", back_populates="crawl", cascade="all, delete-orphan")
+    workspace = relationship("Workspace", back_populates="crawls")
 
 
 class Page(Base):
@@ -67,6 +69,7 @@ class Page(Base):
 
     id = Column(String(36), primary_key=True, default=_uuid)
     crawl_id = Column(String(36), ForeignKey('crawls.id', ondelete='CASCADE'))
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
 
     url = Column(Text, nullable=False, index=True)
     canonical_url = Column(Text)
@@ -97,6 +100,46 @@ class Page(Base):
     og_description = Column(Text)
     og_image = Column(Text)
 
+    # ── Deep extraction fields ───────────────────────────────
+    meta_tags = Column(JSON)              # All meta name/content pairs
+    og_data = Column(JSON)                # Full OpenGraph data
+    twitter_card = Column(JSON)           # Twitter Card data
+    structured_data = Column(JSON)        # JSON-LD blocks
+    technologies = Column(JSON)           # Detected tech stack [{category, name, confidence}]
+
+    # Contact info
+    emails_found = Column(JSON)           # List of emails
+    phone_numbers = Column(JSON)          # List of phone numbers
+    addresses_found = Column(JSON)        # List of physical addresses
+    social_links = Column(JSON)           # {platform: url}
+
+    # SEO audit
+    seo_score = Column(Integer)           # 0-100
+    seo_issues = Column(JSON)             # List of issue strings
+    seo_passes = Column(JSON)             # List of passing checks
+
+    # Content analysis
+    readability_score = Column(Float)     # Flesch-Kincaid
+    reading_level = Column(String(30))
+    content_to_html_ratio = Column(Float)
+    sentence_count = Column(Integer)
+    unique_word_count = Column(Integer)
+    top_words = Column(JSON)              # [{word, count}]
+    content_hash = Column(String(16))
+
+    # Page structure
+    language = Column(String(10))
+    favicon_url = Column(Text)
+    robots_meta = Column(Text)
+    hreflang = Column(JSON)               # {lang: url}
+    has_canonical = Column(Boolean, default=False)
+
+    # Resource counts
+    scripts_count = Column(Integer, default=0)
+    stylesheets_count = Column(Integer, default=0)
+    forms_count = Column(Integer, default=0)
+    total_resource_count = Column(Integer, default=0)
+
     scraped_at = Column(DateTime(timezone=True), default=_now, index=True)
     depth = Column(Integer, default=0)
 
@@ -105,6 +148,7 @@ class Page(Base):
     findings = relationship("SecurityFinding", back_populates="page")
     forms = relationship("Form", back_populates="page")
     classification = relationship("GenreClassification", back_populates="page", uselist=False)
+    workspace = relationship("Workspace", back_populates="pages")
 
 
 class Link(Base):
@@ -135,6 +179,7 @@ class SecurityFinding(Base):
     id = Column(String(36), primary_key=True, default=_uuid)
     crawl_id = Column(String(36), ForeignKey('crawls.id', ondelete='CASCADE'))
     page_id = Column(String(36), ForeignKey('pages.id', ondelete='CASCADE'))
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
 
     finding_type = Column(String(50), nullable=False, index=True)
     severity = Column(String(20), nullable=False, index=True)
@@ -160,6 +205,26 @@ class SecurityFinding(Base):
 
     crawl = relationship("Crawl", back_populates="findings")
     page = relationship("Page", back_populates="findings")
+    workspace = relationship("Workspace", back_populates="findings")
+
+
+class Workspace(Base):
+    """Workspace / assessment boundary for correlated crawl, proxy, and security data."""
+    __tablename__ = 'workspaces'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    name = Column(String(255), nullable=False, index=True)
+    description = Column(Text)
+    scope_rules = Column(JSON)  # [{type, mode, value}]
+    tags = Column(JSON)         # [str]
+    risk_policy = Column(JSON)  # {allow_active_scan, ...}
+    archived = Column(Boolean, default=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=_now, index=True)
+    updated_at = Column(DateTime(timezone=True), default=_now)
+
+    crawls = relationship("Crawl", back_populates="workspace")
+    pages = relationship("Page", back_populates="workspace")
+    findings = relationship("SecurityFinding", back_populates="workspace")
 
 
 class Article(Base):
@@ -203,6 +268,40 @@ class Form(Base):
     discovered_at = Column(DateTime(timezone=True), default=_now)
 
     page = relationship("Page", back_populates="forms")
+
+
+class Asset(Base):
+    """Page resources — images, scripts, stylesheets with metadata."""
+    __tablename__ = 'assets'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    page_id = Column(String(36), ForeignKey('pages.id', ondelete='CASCADE'))
+    crawl_id = Column(String(36), ForeignKey('crawls.id', ondelete='CASCADE'), index=True)
+
+    url = Column(Text, nullable=False)
+    asset_type = Column(String(20), nullable=False, index=True)  # image | script | stylesheet | font | video
+    alt_text = Column(Text)
+    is_external = Column(Boolean, default=False, index=True)
+    loading = Column(String(10))            # lazy | eager
+    attributes = Column(JSON)
+    discovered_at = Column(DateTime(timezone=True), default=_now)
+
+    page = relationship("Page", backref="assets")
+
+
+class Technology(Base):
+    """Detected technologies aggregated across crawls."""
+    __tablename__ = 'technologies'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    crawl_id = Column(String(36), ForeignKey('crawls.id', ondelete='CASCADE'), index=True)
+    page_id = Column(String(36), ForeignKey('pages.id', ondelete='CASCADE'))
+    domain = Column(String(255), index=True)
+
+    category = Column(String(30), nullable=False, index=True)
+    name = Column(String(100), nullable=False, index=True)
+    confidence = Column(Float, default=0.8)
+    detected_at = Column(DateTime(timezone=True), default=_now)
 
 
 class DashboardMetric(Base):
@@ -351,7 +450,13 @@ class DatabaseManager:
 
     # ── Crawler helpers ──────────────────────────────────────
 
-    async def create_crawl(self, target_url: str, config: Dict = None, genre: str = None) -> str:
+    async def create_crawl(
+        self,
+        target_url: str,
+        config: Dict = None,
+        genre: str = None,
+        workspace_id: Optional[str] = None,
+    ) -> str:
         """Create a crawl record. Returns the crawl UUID as string."""
         if not self.async_session_maker:
             await self.init_async()
@@ -361,6 +466,7 @@ class DatabaseManager:
                 config=config,
                 genre=genre,
                 status='running',
+                workspace_id=workspace_id,
             )
             session.add(crawl)
             await session.flush()
@@ -408,8 +514,13 @@ class DatabaseManager:
             await session.flush()
             return str(page.id)
 
-    async def save_links(self, crawl_id: str, page_id: str, links: List[str], is_external: bool = False):
-        """Batch-save discovered links."""
+    async def save_links(self, crawl_id: str, page_id: str, links: List[Any], is_external: bool = False):
+        """Batch-save discovered links.
+
+        Supports either:
+        - list[str] URLs (legacy callers)
+        - list[dict] rich metadata records with keys like url/is_external/anchor_text
+        """
         if not links:
             return
         if not self.async_session_maker:
@@ -418,18 +529,67 @@ class DatabaseManager:
         from urllib.parse import urlparse as _up
         async with self.get_session() as session:
             objs = []
-            for url in links:
+            for item in links:
+                if isinstance(item, dict):
+                    url = item.get("url") or item.get("target_url")
+                    if not url:
+                        continue
+                    link_is_external = bool(item.get("is_external", is_external))
+                    anchor_text = item.get("anchor_text")
+                    rel_attributes = item.get("rel_attributes")
+                    status_code = item.get("status_code")
+                    link_type = item.get("link_type", "text")
+                else:
+                    url = str(item)
+                    link_is_external = is_external
+                    anchor_text = None
+                    rel_attributes = None
+                    status_code = None
+                    link_type = "text"
+
                 domain = _up(url).netloc
                 objs.append(Link(
                     crawl_id=crawl_id,
                     source_page_id=page_id,
                     target_url=url,
                     target_domain=domain,
-                    is_external=is_external,
+                    anchor_text=anchor_text,
+                    rel_attributes=rel_attributes,
+                    status_code=status_code,
+                    link_type=link_type,
+                    is_external=link_is_external,
                 ))
             session.add_all(objs)
 
-    async def save_finding(self, crawl_id: str, page_id: Optional[str], finding: Dict):
+    async def save_forms(self, crawl_id: str, page_id: str, forms: List[Dict[str, Any]]):
+        """Batch-save discovered forms with field metadata."""
+        if not forms:
+            return
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            objs = []
+            for form in forms:
+                fields = form.get("fields") or []
+                objs.append(Form(
+                    crawl_id=crawl_id,
+                    page_id=page_id,
+                    action_url=form.get("action") or form.get("action_url"),
+                    method=(form.get("method") or "GET").upper(),
+                    fields=fields,
+                    fields_count=form.get("field_count", len(fields)),
+                    csrf_protected=bool(form.get("csrf_protected")),
+                    captcha_present=bool(form.get("has_captcha") or form.get("captcha_present")),
+                ))
+            session.add_all(objs)
+
+    async def save_finding(
+        self,
+        crawl_id: str,
+        page_id: Optional[str],
+        finding: Dict,
+        workspace_id: Optional[str] = None,
+    ):
         """Save a security finding."""
         if not self.async_session_maker:
             await self.init_async()
@@ -447,6 +607,7 @@ class DatabaseManager:
                 description=finding.get("description"),
                 remediation=finding.get("remediation"),
                 payload=finding.get("payload"),
+                workspace_id=workspace_id,
             )
             session.add(obj)
 
@@ -511,7 +672,7 @@ class DatabaseManager:
         async with self.get_session() as session:
             result = await session.execute(text("""
                 SELECT id, target_url, status, pages_crawled, pages_failed,
-                       external_links, requests_per_sec, genre,
+                       external_links, requests_per_sec, genre, workspace_id,
                        started_at, completed_at
                 FROM crawls
                 ORDER BY started_at DESC

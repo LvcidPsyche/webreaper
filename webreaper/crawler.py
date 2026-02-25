@@ -15,6 +15,7 @@ from rich.progress import Progress, TaskID
 import logging
 
 from .config import Config
+from .deep_extractor import DeepExtractor, DeepPageData
 from .fetcher import StealthFetcher
 from .frontier import URLFrontier
 from .modules.robots import RobotsCache
@@ -53,13 +54,19 @@ class Crawler:
         self.config = config
         self.db_manager = db_manager
         self.frontier = URLFrontier()
+        self.deep_extractor = DeepExtractor()
         self.results: List[CrawlResult] = []
+        self.deep_results: Dict[str, DeepPageData] = {}
         self.stats = {
             "pages_crawled": 0,
             "pages_failed": 0,
             "total_size": 0,
             "start_time": 0,
             "external_links": 0,
+            "queue_size": 0,
+            "current_url": "",
+            "active_workers": 0,
+            "requests_per_second": 0.0,
         }
         self.progress: Optional[Progress] = None
         self.task_id: Optional[TaskID] = None
@@ -68,6 +75,7 @@ class Crawler:
         self._active_workers = 0
         self._active_lock = asyncio.Lock()
         self._crawl_id: Optional[str] = None
+        self._workspace_id: Optional[str] = None
         self._robots: Optional[RobotsCache] = None
         self._metrics_callback: Optional[Callable] = None  # For metrics integration
 
@@ -82,12 +90,15 @@ class Crawler:
                     target_url=start_urls[0],
                     config=self.config.model_dump(mode="json"),
                     genre=getattr(self.config, "genre", None),
+                    workspace_id=self._workspace_id,
                 )
             except Exception as e:
                 logger.error("DB: failed to create crawl record: %s", e)
 
         for url in start_urls:
             await self.frontier.add(url, depth=0, priority=0)
+        self.stats["queue_size"] = self.frontier.qsize()
+        self._emit_metrics()
 
         console.print(f"[green]Starting crawl of {len(start_urls)} URLs...[/green]")
         console.print(f"[dim]Max depth: {self.config.crawler.max_depth}, Max pages: {self.config.crawler.max_pages}[/dim]")
@@ -104,6 +115,10 @@ class Crawler:
             await asyncio.gather(*workers, return_exceptions=True)
 
         elapsed = time.time() - self.stats["start_time"]
+        self.stats["requests_per_second"] = (self.stats["pages_crawled"] / elapsed) if elapsed > 0 else 0.0
+        self.stats["queue_size"] = self.frontier.qsize()
+        self.stats["current_url"] = ""
+        self._emit_metrics()
 
         # Update DB crawl record on completion
         if self.db_manager and self._crawl_id:
@@ -125,6 +140,8 @@ class Crawler:
         """Worker that processes URLs from frontier."""
         async with self._active_lock:
             self._active_workers += 1
+            self.stats["active_workers"] = self._active_workers
+        self._emit_metrics()
 
         try:
             consecutive_empty = 0
@@ -148,6 +165,10 @@ class Crawler:
                     continue
 
                 consecutive_empty = 0
+                self.stats["current_url"] = task.url
+                self.stats["queue_size"] = self.frontier.qsize()
+                self.stats["active_workers"] = self._active_workers
+                self._emit_metrics()
 
                 result = await self._crawl_page(fetcher, task.url, task.depth)
 
@@ -164,17 +185,56 @@ class Crawler:
 
                     if callback:
                         callback(result)
+                    self._emit_metrics(
+                        page_delta=1,
+                        status_code=result.status,
+                        bytes_delta=len(result.content_text or ""),
+                    )
                 else:
                     self.stats["pages_failed"] += 1
+                    self._emit_metrics(fail_delta=1)
 
         except asyncio.CancelledError:
             pass
         finally:
             async with self._active_lock:
                 self._active_workers -= 1
+                self.stats["active_workers"] = self._active_workers
+            self.stats["queue_size"] = self.frontier.qsize()
+            self._emit_metrics()
+
+    def _emit_metrics(
+        self,
+        *,
+        page_delta: int = 0,
+        fail_delta: int = 0,
+        bytes_delta: int = 0,
+        status_code: Optional[int] = None,
+    ) -> None:
+        """Emit incremental + gauge metrics to an external metrics callback."""
+        if not self._metrics_callback:
+            return
+        elapsed = time.time() - self.stats["start_time"] if self.stats.get("start_time") else 0
+        self.stats["requests_per_second"] = (self.stats["pages_crawled"] / elapsed) if elapsed > 0 else 0.0
+        event = {
+            "pages_crawled": self.stats.get("pages_crawled", 0),
+            "pages_failed": self.stats.get("pages_failed", 0),
+            "queue_size": self.stats.get("queue_size", 0),
+            "current_url": self.stats.get("current_url", ""),
+            "active_workers": self.stats.get("active_workers", 0),
+            "requests_per_second": self.stats.get("requests_per_second", 0.0),
+            "page_delta": page_delta,
+            "fail_delta": fail_delta,
+            "bytes_delta": bytes_delta,
+            "status_code": status_code,
+        }
+        try:
+            self._metrics_callback(event)
+        except Exception as e:
+            logger.debug("Metrics callback error ignored: %s", e)
 
     async def _crawl_page(self, fetcher: StealthFetcher, url: str, depth: int) -> Optional[CrawlResult]:
-        """Crawl a single page."""
+        """Crawl a single page with deep extraction."""
         start_time = time.time()
 
         # Check robots.txt if enabled
@@ -192,29 +252,65 @@ class Crawler:
         if status not in (200, 201) or not text:
             return None
 
-        soup = BeautifulSoup(text, 'lxml')
+        deep: Optional[DeepPageData] = None
+        try:
+            # Deep extraction — gets everything
+            deep = self.deep_extractor.extract(
+                url=url,
+                status_code=status,
+                html=text,
+                headers=headers,
+                response_time_ms=int(response_time * 1000),
+                depth=depth,
+            )
+            # Store deep result keyed by URL (latest wins on duplicates)
+            self.deep_results[url] = deep
 
-        # Extract content once, reuse for word count
-        content_text = self._extract_content(soup)
+            # Build backward-compatible CrawlResult from deep data
+            internal_urls = [l.url for l in deep.links if not l.is_external]
+            external_urls = [l.url for l in deep.links if l.is_external]
 
-        result = CrawlResult(
-            url=url,
-            status=status,
-            title=self._extract_title(soup),
-            meta_description=self._extract_meta(soup, "description"),
-            headings=self._extract_headings(soup),
-            links=self._extract_links(soup, url, external=False),
-            external_links=self._extract_links(soup, url, external=True),
-            images=self._extract_images(soup, url),
-            content_text=content_text,
-            word_count=len(content_text.split()),
-            headers=headers,
-            response_time=response_time,
-            depth=depth,
-            forms=self._extract_forms(soup, url),
-            scripts=[s.get("src") for s in soup.find_all("script") if s.get("src")],
-            stylesheets=[s.get("href") for s in soup.find_all("link", rel="stylesheet") if s.get("href")],
-        )
+            result = CrawlResult(
+                url=url,
+                status=status,
+                title=deep.title,
+                meta_description=deep.meta_description,
+                headings=deep.headings,
+                links=internal_urls,
+                external_links=external_urls,
+                images=[img.url for img in deep.images],
+                content_text=deep.content_text,
+                word_count=deep.word_count,
+                headers=headers,
+                response_time=response_time,
+                depth=depth,
+                forms=deep.forms,
+                scripts=[s.url for s in deep.scripts],
+                stylesheets=[s.url for s in deep.stylesheets],
+            )
+        except Exception as e:
+            logger.exception("Deep extraction failed for %s: %s", url, e)
+            # Fall back to shallow extraction to avoid losing a successful fetch.
+            soup = BeautifulSoup(text, 'lxml')
+            content_text = self._extract_content(soup)
+            result = CrawlResult(
+                url=url,
+                status=status,
+                title=self._extract_title(soup),
+                meta_description=self._extract_meta(soup, "description"),
+                headings=self._extract_headings(soup),
+                links=self._extract_links(soup, url, external=False),
+                external_links=self._extract_links(soup, url, external=True),
+                images=self._extract_images(soup, url),
+                content_text=content_text,
+                word_count=len(content_text.split()),
+                headers=headers,
+                response_time=response_time,
+                depth=depth,
+                forms=self._extract_forms(soup, url),
+                scripts=[s.get("src") for s in soup.find_all("script") if s.get("src")],
+                stylesheets=[s.get("href") for s in soup.find_all("link", rel="stylesheet") if s.get("href")],
+            )
 
         self.stats["total_size"] += len(text)
         self.stats["external_links"] += len(result.external_links)
@@ -222,11 +318,16 @@ class Crawler:
         return result
 
     async def _save_to_db(self, result: CrawlResult):
-        """Persist page result to database."""
+        """Persist page result with deep extraction data to database."""
         try:
             parsed = urlparse(result.url)
-            page_id = await self.db_manager.save_page(
+
+            # Find matching deep result
+            deep = self.deep_results.pop(result.url, None)
+
+            page_kwargs = dict(
                 crawl_id=self._crawl_id,
+                workspace_id=self._workspace_id,
                 url=result.url,
                 domain=parsed.netloc,
                 path=parsed.path,
@@ -241,21 +342,123 @@ class Crawler:
                 images_count=len(result.images),
                 links_count=len(result.links),
                 external_links_count=len(result.external_links),
-                h1=next((h["text"] for h in result.headings if h["level"] == 1), None),
-                h2s=[h["text"] for h in result.headings if h["level"] == 2],
+                h1=next((h["text"] for h in result.headings if h.get("level") == 1), None),
+                h2s=[h["text"] for h in result.headings if h.get("level") == 2],
                 response_headers=result.headers,
                 depth=result.depth,
-                forms=result.forms,
             )
-            if page_id and result.external_links:
-                await self.db_manager.save_links(
-                    crawl_id=self._crawl_id,
-                    page_id=page_id,
-                    links=result.external_links,
-                    is_external=True,
+
+            # Deep extraction data
+            if deep:
+                page_kwargs.update(
+                    meta_tags=deep.meta_tags,
+                    og_data=deep.og_data,
+                    twitter_card=deep.twitter_card,
+                    structured_data=deep.structured_data,
+                    technologies=[
+                        {'category': t.category, 'name': t.name, 'confidence': t.confidence}
+                        for t in deep.technologies
+                    ],
+                    emails_found=deep.emails,
+                    phone_numbers=deep.phone_numbers,
+                    addresses_found=deep.addresses,
+                    social_links=deep.social_links,
+                    seo_score=deep.seo.score if deep.seo else None,
+                    seo_issues=deep.seo.issues if deep.seo else None,
+                    seo_passes=deep.seo.passes if deep.seo else None,
+                    readability_score=deep.content_analysis.readability_score if deep.content_analysis else None,
+                    reading_level=deep.content_analysis.reading_level if deep.content_analysis else None,
+                    content_to_html_ratio=deep.content_analysis.content_to_html_ratio if deep.content_analysis else None,
+                    sentence_count=deep.content_analysis.sentence_count if deep.content_analysis else None,
+                    unique_word_count=deep.content_analysis.unique_word_count if deep.content_analysis else None,
+                    top_words=deep.content_analysis.top_words if deep.content_analysis else None,
+                    content_hash=deep.content_analysis.content_hash if deep.content_analysis else None,
+                    language=deep.language,
+                    favicon_url=deep.favicon_url,
+                    robots_meta=deep.robots_meta,
+                    hreflang=deep.hreflang,
+                    has_canonical=deep.canonical_url is not None,
+                    canonical_url=deep.canonical_url,
+                    scripts_count=len(deep.scripts),
+                    stylesheets_count=len(deep.stylesheets),
+                    forms_count=len(deep.forms),
+                    total_resource_count=deep.total_resource_count,
                 )
+
+            page_id = await self.db_manager.save_page(**page_kwargs)
+
+            if page_id and deep:
+                # Save links (internal + external) with metadata when available
+                if deep.links:
+                    await self.db_manager.save_links(
+                        crawl_id=self._crawl_id,
+                        page_id=page_id,
+                        links=[
+                            {
+                                "url": l.url,
+                                "is_external": l.is_external,
+                                "anchor_text": l.anchor_text,
+                                "rel_attributes": l.rel,
+                                "link_type": "nav" if l.is_navigation else ("footer" if l.is_footer else "text"),
+                            }
+                            for l in deep.links
+                        ],
+                    )
+
+                # Save forms
+                if getattr(self.db_manager, "save_forms", None) and deep.forms:
+                    await self.db_manager.save_forms(
+                        crawl_id=self._crawl_id,
+                        page_id=page_id,
+                        forms=deep.forms,
+                    )
+
+                # Save assets
+                await self._save_assets(page_id, deep)
+
+                # Save technologies
+                await self._save_technologies(page_id, parsed.netloc, deep)
+
         except Exception as e:
             logger.error("DB save error for %s: %s", result.url, e)
+
+    async def _save_assets(self, page_id: str, deep: 'DeepPageData'):
+        """Save assets (images, scripts, stylesheets) to database."""
+        from .database import Asset
+        try:
+            async with self.db_manager.get_session() as session:
+                for asset in deep.assets:
+                    obj = Asset(
+                        page_id=page_id,
+                        crawl_id=self._crawl_id,
+                        url=asset.url,
+                        asset_type=asset.asset_type,
+                        alt_text=asset.alt_text,
+                        is_external=asset.is_external,
+                        loading=asset.loading,
+                        attributes=asset.attributes,
+                    )
+                    session.add(obj)
+        except Exception as e:
+            logger.error("Asset save error for page %s: %s", page_id, e)
+
+    async def _save_technologies(self, page_id: str, domain: str, deep: 'DeepPageData'):
+        """Save detected technologies to database."""
+        from .database import Technology
+        try:
+            async with self.db_manager.get_session() as session:
+                for tech in deep.technologies:
+                    obj = Technology(
+                        crawl_id=self._crawl_id,
+                        page_id=page_id,
+                        domain=domain,
+                        category=tech.category,
+                        name=tech.name,
+                        confidence=tech.confidence,
+                    )
+                    session.add(obj)
+        except Exception as e:
+            logger.error("Tech save error for page %s: %s", page_id, e)
 
     async def _add_links(self, result: CrawlResult, current_depth: int):
         if current_depth >= self.config.crawler.max_depth:
