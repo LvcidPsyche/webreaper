@@ -41,6 +41,12 @@ interface ProxyHistoryResponse {
   transactions: ProxyTx[];
 }
 
+interface CertStatus {
+  tls_intercept_ready: boolean;
+  primary_cert?: { path: string; sha256?: string | null } | null;
+  install_hint?: string;
+}
+
 export default function ProxyPage() {
   const [sessions, setSessions] = useState<ProxySession[]>([]);
   const [history, setHistory] = useState<ProxyHistoryResponse | null>(null);
@@ -52,6 +58,7 @@ export default function ProxyPage() {
   const [hostFilter, setHostFilter] = useState('');
   const [queuedOnly, setQueuedOnly] = useState(false);
   const [queueCount, setQueueCount] = useState(0);
+  const [certStatus, setCertStatus] = useState<CertStatus | null>(null);
 
   const activeSession = useMemo(() => sessions.find((s) => s.id === selectedSessionId) ?? null, [sessions, selectedSessionId]);
 
@@ -87,6 +94,7 @@ export default function ProxyPage() {
       await loadSessions();
       await loadHistory();
       await loadQueueCount();
+      setCertStatus(await api.get<CertStatus>('/api/proxy/cert-status'));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load proxy data');
@@ -180,6 +188,12 @@ export default function ProxyPage() {
       </div>
 
       {error && <div className="mb-4 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs font-mono text-red-300">{error}</div>}
+
+      {certStatus && (
+        <div className={`mb-4 rounded border px-3 py-2 text-xs font-mono ${certStatus.tls_intercept_ready ? 'border-green-500/30 bg-green-500/10 text-green-200' : 'border-amber-500/30 bg-amber-500/10 text-amber-200'}`}>
+          TLS intercept CA: {certStatus.tls_intercept_ready ? 'ready' : 'not detected'}{certStatus.primary_cert?.path ? ` • ${certStatus.primary_cert.path}` : ''}{certStatus.install_hint ? ` • ${certStatus.install_hint}` : ''}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-[340px_1fr_420px] gap-4 min-h-[72vh]">
         <div className="rounded-lg border border-reaper-border bg-reaper-surface overflow-hidden">

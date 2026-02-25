@@ -107,7 +107,7 @@
     - Implement intercept action APIs and tests for edit/release behavior.
     - _Requirements: 6.2, 12.4, 14.3_
 
-- [ ] 11. Add HTTPS interception certificate status and setup verification APIs
+- [x] 11. Add HTTPS interception certificate status and setup verification APIs
   - Implement certificate status checks, trust guidance endpoints, and readiness verification used by UI setup flow.
   - Add tests for missing/invalid certificate states and safe error responses.
   - _Requirements: 6.3, 14.4, 12.2_

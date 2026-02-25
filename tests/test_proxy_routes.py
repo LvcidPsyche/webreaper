@@ -101,3 +101,19 @@ def test_proxy_session_lifecycle_and_history(temp_db):
         stop = client.post(f"/api/proxy/sessions/{sid}/stop")
         assert stop.status_code == 200
         assert stop.json()["status"] == "stopped"
+
+
+def test_proxy_cert_status_endpoints(temp_db):
+    app = _make_app(temp_db)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        status = client.get("/api/proxy/cert-status")
+        assert status.status_code == 200
+        body = status.json()
+        assert "tls_intercept_ready" in body
+        assert "candidates" in body
+
+        verify = client.post("/api/proxy/cert-status/verify", json={"ca_cert_path": "/definitely/not/here.pem"})
+        assert verify.status_code == 200
+        check = verify.json()
+        assert check["tls_intercept_ready"] is False
+        assert check["candidates"][0]["exists"] is False

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from webreaper.proxy.certs import cert_status
 
 router = APIRouter()
 
@@ -38,6 +39,10 @@ class ProxyInterceptEditRequest(BaseModel):
     request: dict | None = None
     response: dict | None = None
     tags: list[str] = Field(default_factory=list)
+
+
+class ProxyCertVerifyRequest(BaseModel):
+    ca_cert_path: str | None = None
 
 
 def _db(request: Request):
@@ -140,6 +145,16 @@ async def capture_flow(payload: ProxyCaptureRequest, request: Request):
         intercept_state=payload.intercept_state,
     )
     return {"id": tx_id, "status": "stored"}
+
+
+@router.get("/cert-status")
+async def proxy_cert_status():
+    return cert_status()
+
+
+@router.post("/cert-status/verify")
+async def proxy_cert_verify(payload: ProxyCertVerifyRequest):
+    return cert_status(payload.ca_cert_path)
 
 
 @router.get("/history")
