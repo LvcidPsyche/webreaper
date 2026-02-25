@@ -454,6 +454,89 @@ async def link_analysis(
     }
 
 
+@router.get("/link-health/{crawl_id}")
+async def link_health_analysis(request: Request, crawl_id: str):
+    """Technical link health analytics: broken links, redirects, orphan candidates, depth outliers."""
+    db = _db(request)
+    async with db.get_session() as session:
+        broken = await session.execute(text("""
+            SELECT target_url, target_domain, COUNT(*) as refs, MIN(status_code) as status_code
+            FROM links
+            WHERE crawl_id = :cid AND is_broken = 1
+            GROUP BY target_url, target_domain
+            ORDER BY refs DESC
+            LIMIT 200
+        """), {"cid": crawl_id})
+        redirects = await session.execute(text("""
+            SELECT target_url, target_domain, COUNT(*) as refs, MIN(status_code) as status_code
+            FROM links
+            WHERE crawl_id = :cid AND status_code BETWEEN 300 AND 399
+            GROUP BY target_url, target_domain
+            ORDER BY refs DESC
+            LIMIT 200
+        """), {"cid": crawl_id})
+        orphan_candidates = await session.execute(text("""
+            SELECT p.id, p.url, p.depth
+            FROM pages p
+            LEFT JOIN links l ON l.crawl_id = p.crawl_id AND l.target_url = p.url
+            WHERE p.crawl_id = :cid
+            GROUP BY p.id, p.url, p.depth
+            HAVING COUNT(l.id) = 0 AND p.depth > 0
+            ORDER BY p.depth DESC, p.url
+            LIMIT 200
+        """), {"cid": crawl_id})
+        depth_outliers = await session.execute(text("""
+            SELECT id, url, depth, status_code, links_count
+            FROM pages
+            WHERE crawl_id = :cid
+            ORDER BY depth DESC, links_count ASC
+            LIMIT 50
+        """), {"cid": crawl_id})
+    return {
+        "crawl_id": crawl_id,
+        "broken_links": [dict(r._mapping) for r in broken.fetchall()],
+        "redirect_links": [dict(r._mapping) for r in redirects.fetchall()],
+        "orphan_candidates": [dict(r._mapping) for r in orphan_candidates.fetchall()],
+        "depth_outliers": [dict(r._mapping) for r in depth_outliers.fetchall()],
+    }
+
+
+@router.get("/duplicates/{crawl_id}")
+async def duplicate_content_analysis(request: Request, crawl_id: str):
+    """Duplicate/near-duplicate content grouping using content hashes and titles."""
+    db = _db(request)
+    async with db.get_session() as session:
+        exact_hash = await session.execute(text("""
+            SELECT content_hash, COUNT(*) as count, GROUP_CONCAT(url) as urls
+            FROM pages
+            WHERE crawl_id = :cid AND content_hash IS NOT NULL AND content_hash != ''
+            GROUP BY content_hash
+            HAVING COUNT(*) > 1
+            ORDER BY count DESC
+            LIMIT 200
+        """), {"cid": crawl_id})
+        dup_titles = await session.execute(text("""
+            SELECT title, COUNT(*) as count, GROUP_CONCAT(url) as urls
+            FROM pages
+            WHERE crawl_id = :cid AND title IS NOT NULL AND TRIM(title) != ''
+            GROUP BY LOWER(TRIM(title))
+            HAVING COUNT(*) > 1
+            ORDER BY count DESC
+            LIMIT 200
+        """), {"cid": crawl_id})
+    def _split_urls(v):
+        return [u for u in str(v or "").split(",") if u]
+    exact_groups = []
+    for r in exact_hash.fetchall():
+        m = dict(r._mapping)
+        exact_groups.append({"content_hash": m["content_hash"], "count": m["count"], "urls": _split_urls(m.get("urls"))})
+    title_groups = []
+    for r in dup_titles.fetchall():
+        m = dict(r._mapping)
+        title_groups.append({"title": m["title"], "count": m["count"], "urls": _split_urls(m.get("urls"))})
+    return {"crawl_id": crawl_id, "exact_duplicates": exact_groups, "duplicate_titles": title_groups}
+
+
 # ── Deep Page Detail ─────────────────────────────────────────
 
 
@@ -616,4 +699,32 @@ async def endpoint_inventory(
         "offset": offset,
         "limit": limit,
         "endpoints": page,
+    }
+
+
+@router.get("/manual-seeds/{crawl_id}")
+async def manual_tool_seeds(request: Request, crawl_id: str, limit: int = Query(default=100, le=500)):
+    """Seed manual tools/scanner candidates from endpoint inventory."""
+    inventory = await endpoint_inventory(request, crawl_id, limit=limit, offset=0)
+    endpoints = inventory["endpoints"]
+    repeater_candidates = []
+    intruder_candidates = []
+    passive_scan_candidates = []
+    for ep in endpoints:
+        scheme = ep.get("scheme") or "http"
+        host = ep.get("host") or ""
+        path = ep.get("path") or "/"
+        url = f"{scheme}://{host}{path}"
+        if ep.get("query_params"):
+            url += "?" + "&".join(f"{p}=VALUE" for p in ep["query_params"])
+        repeater_candidates.append({"method": ep.get("method", "GET"), "url": url, "source": "endpoint_inventory"})
+        params = list(ep.get("query_params", [])) + list(ep.get("body_param_names", []))
+        if params:
+            intruder_candidates.append({"method": ep.get("method", "GET"), "url": url, "params": params, "marker_hint": "§FUZZ§"})
+        passive_scan_candidates.append({"url": url, "method": ep.get("method", "GET"), "param_count": len(params)})
+    return {
+        "crawl_id": crawl_id,
+        "repeater": repeater_candidates[:limit],
+        "intruder": intruder_candidates[:limit],
+        "passive_scan": passive_scan_candidates[:limit],
     }

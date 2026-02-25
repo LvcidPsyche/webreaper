@@ -31,11 +31,24 @@ export interface SecurityFinding {
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
   category: string;
   title: string;
-  description: string;
-  evidence: string;
-  remediation: string;
-  crawl_job_id: string;
+  description?: string;
+  evidence?: string;
+  remediation?: string;
+  crawl_job_id?: string;
   found_at: string;
+  type?: string;
+  parameter?: string;
+  workspace_id?: string | null;
+  crawl_id?: string | null;
+  triage_status?: string;
+  triage_assignee?: string | null;
+  triage_tags?: string[];
+  triage_notes?: string | null;
+  endpoint_id?: string | null;
+  transaction_id?: string | null;
+  verified?: boolean;
+  false_positive?: boolean;
+  confidence?: string;
 }
 
 export interface AgentProvider {

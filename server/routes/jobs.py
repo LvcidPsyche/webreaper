@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import text
 
 from webreaper.config import Config
 from webreaper.crawler import Crawler
@@ -71,6 +72,13 @@ class JobResponse(BaseModel):
     job_id: str
     status: str
     target_urls: list[str]
+
+
+class ResumeJobRequest(BaseModel):
+    depth: int | None = None
+    concurrency: int | None = None
+    browser_render: bool | None = None
+    security_scan: bool | None = None
 
 
 @router.post("", response_model=JobResponse)
@@ -265,6 +273,41 @@ async def list_jobs(request: Request):
             pass
 
     return result
+
+
+@router.post("/resume/{crawl_id}", response_model=JobResponse)
+async def resume_crawl(crawl_id: str, request: Request, payload: ResumeJobRequest | None = None):
+    """Restart-safe resume helper: restarts a crawl from prior crawl metadata as a new job."""
+    db = request.app.state.db
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not available")
+    async with db.get_session() as session:
+        row = (await session.execute(text("""
+            SELECT id, target_url, status, config, workspace_id
+            FROM crawls
+            WHERE id = :id
+        """), {"id": crawl_id})).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Crawl not found")
+        data = dict(row._mapping)
+
+    cfg = data.get("config") or {}
+    if isinstance(cfg, str):
+        import json
+        try:
+            cfg = json.loads(cfg)
+        except Exception:
+            cfg = {}
+    payload = payload or ResumeJobRequest()
+    req = CrawlJobRequest(
+        urls=[data.get("target_url")],
+        workspace_id=data.get("workspace_id"),
+        depth=payload.depth or int(cfg.get("crawler", {}).get("max_depth", 3) if isinstance(cfg.get("crawler"), dict) else 3),
+        concurrency=payload.concurrency or int(cfg.get("crawler", {}).get("concurrency", 10) if isinstance(cfg.get("crawler"), dict) else 10),
+        security_scan=bool(payload.security_scan) if payload.security_scan is not None else False,
+        browser_render=bool(payload.browser_render) if payload.browser_render is not None else False,
+    )
+    return await start_crawl(req, request)
 
 
 @router.delete("/{job_id}")

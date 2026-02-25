@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "captured_at": "2026-02-25",
+  "notes": "Synthetic baseline placeholders for local dev comparisons. Replace with measured fixtures over time.",
+  "targets": {
+    "proxy_history_filter_200_rows_ms": 250,
+    "repeater_replay_roundtrip_ms": 800,
+    "intruder_10_payloads_local_ms": 5000,
+    "ui_typecheck_seconds": 12
+  },
+  "competitor_reference": {
+    "screaming_frog": {"crawl_ui_responsiveness": "reference"},
+    "burp_suite": {"manual_tooling_integrity": "reference"}
+  }
+}

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Play, Save, Plus, Wand2 } from 'lucide-react';
 import api from '@/lib/api';
+import { headersFromText, headersToText, decoderOutputToText } from '@/lib/repeater-utils';
 
 interface RepeaterTab {
   id: string;
@@ -45,24 +46,6 @@ const decoderOps = [
   'url_encode', 'url_decode', 'base64_encode', 'base64_decode',
   'html_encode', 'html_decode', 'hex_encode', 'hex_decode', 'jwt_parse',
 ] as const;
-
-function headersToText(headers: RepeaterTab['headers']) {
-  if (!headers) return '';
-  if (typeof headers === 'string') return headers;
-  return Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join('\n');
-}
-
-function headersFromText(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const idx = trimmed.indexOf(':');
-    if (idx <= 0) continue;
-    out[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
-  }
-  return out;
-}
 
 export default function RepeaterPage() {
   const [tabs, setTabs] = useState<RepeaterTab[]>([]);
@@ -193,7 +176,7 @@ export default function RepeaterPage() {
         setDecoderError(res.error || 'Decoder failed');
         return;
       }
-      const out = typeof res.output === 'string' ? res.output : JSON.stringify(res.output, null, 2);
+      const out = decoderOutputToText(res.output);
       setDecoderOutput(out);
     } catch (e) {
       setDecoderError(e instanceof Error ? e.message : 'Decoder failed');

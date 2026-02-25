@@ -15,6 +15,7 @@ import {
   Database,
   ShieldCheck,
   Repeat,
+  Crosshair,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
@@ -27,10 +28,11 @@ const navItems = [
   { href: '/topology',    label: 'Topology',    icon: Network,         code: '05' },
   { href: '/proxy',       label: 'Proxy',       icon: ShieldCheck,     code: '06' },
   { href: '/repeater',    label: 'Repeater',    icon: Repeat,          code: '07' },
-  { href: '/workstation', label: 'Workstation', icon: FlaskConical,    code: '08' },
-  { href: '/chat',        label: 'Chat',        icon: MessageSquare,   code: '09' },
-  { href: '/logs',        label: 'Logs',        icon: ScrollText,      code: '10' },
-  { href: '/settings',    label: 'Settings',    icon: Settings,        code: '11' },
+  { href: '/intruder',    label: 'Intruder',    icon: Crosshair,       code: '08' },
+  { href: '/workstation', label: 'Workstation', icon: FlaskConical,    code: '09' },
+  { href: '/chat',        label: 'Chat',        icon: MessageSquare,   code: '10' },
+  { href: '/logs',        label: 'Logs',        icon: ScrollText,      code: '11' },
+  { href: '/settings',    label: 'Settings',    icon: Settings,        code: '12' },
 ];
 
 interface SidebarProps {

@@ -140,3 +140,32 @@ def test_intruder_rejects_missing_markers(temp_db):
         })
         assert res.status_code == 400
         assert 'marker' in res.text.lower()
+
+
+def test_intruder_async_start_then_cancel(temp_db, monkeypatch):
+    async def fake_run_job(self, db, job_id: str):  # pragma: no cover - test helper
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            return
+
+    monkeypatch.setattr('webreaper.intruder.service.IntruderService._run_job', fake_run_job)
+
+    app = _make_app(temp_db)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        create = client.post('/api/intruder/jobs', json={
+            'url': 'https://example.com/q?x=§FUZZ§',
+            'payloads': ['a', 'b', 'c', 'd', 'e'],
+            'rate_limit_rps': 1,
+        })
+        assert create.status_code == 200
+        job_id = create.json()['id']
+
+        start = client.post(f'/api/intruder/jobs/{job_id}/start', json={'wait': False})
+        assert start.status_code == 200
+
+        cancel = client.post(f'/api/intruder/jobs/{job_id}/cancel')
+        assert cancel.status_code == 200
+        body = cancel.json()
+        assert body['cancelled'] in (True, 1)
+        assert body['status'] == 'cancelled'

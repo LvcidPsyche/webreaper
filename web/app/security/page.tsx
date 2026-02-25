@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Shield, AlertTriangle, AlertCircle, Info, RefreshCw, Scan, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
 import { clsx } from 'clsx';
 import { AnimateIn } from '@/components/shared/animate-in';
@@ -35,6 +35,25 @@ export default function SecurityPage() {
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [triageSaving, setTriageSaving] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<'json' | 'markdown' | null>(null);
+
+  useEffect(() => {
+    api.get<Record<string, unknown>>('/api/governance/ui-preferences?page=security').then((prefs) => {
+      const savedFilter = prefs['severity.filter'];
+      if (typeof savedFilter === 'string' && (savedFilter === 'all' || savedFilter in severityConfig)) {
+        setFilter(savedFilter as SeverityFilter);
+      }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    api.put('/api/governance/ui-preferences', {
+      page: 'security',
+      key: 'severity.filter',
+      value: filter,
+    }).catch(() => {});
+  }, [filter]);
 
   const counts = useMemo(() => {
     if (!findings) return { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
@@ -64,6 +83,47 @@ export default function SecurityPage() {
       setScanning(false);
     }
   }, [scanUrl, refetch]);
+
+  const updateTriage = useCallback(async (finding: SecurityFinding, status: string) => {
+    setTriageSaving(finding.id);
+    try {
+      await api.patch(`/api/security/findings/${finding.id}/triage`, {
+        status,
+        assignee: finding.triage_assignee || null,
+        tags: finding.triage_tags || [],
+        notes: finding.triage_notes || null,
+      });
+      await refetch();
+    } finally {
+      setTriageSaving(null);
+    }
+  }, [refetch]);
+
+  const exportReport = useCallback(async (format: 'json' | 'markdown') => {
+    setExporting(format);
+    try {
+      const res = await api.get<{ content?: string; total: number } | { total: number }>(`/api/security/report/export?format=${format}`);
+      if (format === 'markdown' && 'content' in res && res.content) {
+        const blob = new Blob([res.content], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'webreaper-security-report.md';
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'webreaper-security-report.json';
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } finally {
+      setExporting(null);
+    }
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -159,6 +219,14 @@ export default function SecurityPage() {
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
           </div>
+          <div className="flex gap-2 mb-3">
+            <button onClick={() => void exportReport('json')} disabled={!!exporting} className="px-2 py-1 rounded border border-reaper-border text-xs font-mono text-reaper-muted hover:text-white disabled:opacity-50">
+              {exporting === 'json' ? 'Exporting...' : 'Export JSON'}
+            </button>
+            <button onClick={() => void exportReport('markdown')} disabled={!!exporting} className="px-2 py-1 rounded border border-reaper-border text-xs font-mono text-reaper-muted hover:text-white disabled:opacity-50">
+              {exporting === 'markdown' ? 'Exporting...' : 'Export MD'}
+            </button>
+          </div>
 
           {loading ? (
             <SkeletonTable rows={8} />
@@ -229,6 +297,20 @@ export default function SecurityPage() {
                                   <code className="mt-0.5 text-reaper-accent">{(f as SecurityFinding & { parameter?: string }).parameter}</code>
                                 </div>
                               )}
+                              <div className="pt-2 border-t border-reaper-border/40 flex flex-wrap items-center gap-2">
+                                <span className="text-reaper-muted text-[10px] uppercase tracking-wider">Triage</span>
+                                <select
+                                  value={f.triage_status || 'open'}
+                                  disabled={triageSaving === f.id}
+                                  onChange={(e) => void updateTriage(f, e.target.value)}
+                                  className="bg-reaper-surface border border-reaper-border rounded px-2 py-1 text-[10px] font-mono text-white"
+                                >
+                                  {['open', 'in_progress', 'resolved', 'false_positive', 'risk_accepted'].map((s) => (
+                                    <option key={s} value={s}>{s}</option>
+                                  ))}
+                                </select>
+                                {f.triage_assignee && <span className="text-[10px] text-reaper-muted">assignee: {f.triage_assignee}</span>}
+                              </div>
                             </td>
                           </tr>
                         )}

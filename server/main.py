@@ -14,7 +14,7 @@ from webreaper.migrations import ensure_database_schema
 from webreaper.proxy.service import ProxyService
 from webreaper.repeater.service import RepeaterService
 from webreaper.intruder.service import IntruderService
-from server.routes import jobs, results, security, stream, chat, agents, workstation, license, data, analysis, workspaces, proxy, repeater, intruder
+from server.routes import jobs, results, security, stream, chat, agents, workstation, license, data, analysis, workspaces, proxy, repeater, intruder, governance
 from server.services.log_buffer import LogBuffer
 from server.services.metrics import MetricsService
 
@@ -36,6 +36,12 @@ async def lifespan(app: FastAPI):
     if app.state.db:
         await app.state.db.init_async()
         await ensure_database_schema(app.state.db)
+        try:
+            interrupted = await app.state.db.mark_running_crawls_interrupted()
+            if interrupted:
+                logger.warning(f"Marked {interrupted} stale running crawl(s) as interrupted on startup")
+        except Exception as e:
+            logger.warning(f"Failed stale crawl recovery check: {e}")
     app.state.log_buffer = log_buffer
     app.state.metrics = metrics_service
     app.state.active_jobs = {}
@@ -82,6 +88,7 @@ app.include_router(workspaces.router, prefix="/api/workspaces", tags=["workspace
 app.include_router(proxy.router, prefix="/api/proxy", tags=["proxy"])
 app.include_router(repeater.router, prefix="/api/repeater", tags=["repeater"])
 app.include_router(intruder.router, prefix="/api/intruder", tags=["intruder"])
+app.include_router(governance.router, prefix="/api/governance", tags=["governance"])
 
 
 @app.get("/health")

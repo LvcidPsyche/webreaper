@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from webreaper.proxy.certs import cert_status
+from webreaper.governance.policy import evaluate_policy, audit_log
 
 router = APIRouter()
 
@@ -39,6 +40,7 @@ class ProxyInterceptEditRequest(BaseModel):
     request: dict | None = None
     response: dict | None = None
     tags: list[str] = Field(default_factory=list)
+    acknowledge_risk: bool = False
 
 
 class ProxyCertVerifyRequest(BaseModel):
@@ -212,6 +214,7 @@ async def forward_intercept(transaction_id: str, request: Request):
     tx = await svc.forward_intercept(db, transaction_id)
     if not tx:
         raise HTTPException(status_code=404, detail="Intercept transaction not found")
+    await audit_log(db, workspace_id=tx.get("workspace_id"), action="proxy.intercept_forward", allowed=True, resource_type="http_transaction", resource_id=transaction_id)
     return tx
 
 
@@ -222,6 +225,7 @@ async def drop_intercept(transaction_id: str, request: Request):
     tx = await svc.drop_intercept(db, transaction_id)
     if not tx:
         raise HTTPException(status_code=404, detail="Intercept transaction not found")
+    await audit_log(db, workspace_id=tx.get("workspace_id"), action="proxy.intercept_drop", allowed=True, resource_type="http_transaction", resource_id=transaction_id)
     return tx
 
 
@@ -229,6 +233,23 @@ async def drop_intercept(transaction_id: str, request: Request):
 async def edit_intercept(transaction_id: str, payload: ProxyInterceptEditRequest, request: Request):
     db = _db(request)
     svc = _service(request)
+    existing = await db.get_http_transaction(transaction_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Intercept transaction not found")
+    decision = await evaluate_policy(db, existing.get("workspace_id"), "proxy.intercept_edit", acknowledge=payload.acknowledge_risk)
+    await audit_log(
+        db,
+        workspace_id=existing.get("workspace_id"),
+        action="proxy.intercept_edit",
+        allowed=decision.allowed,
+        resource_type="http_transaction",
+        resource_id=transaction_id,
+        policy_rule=decision.rule,
+        reason=decision.reason,
+        details={"has_request_patch": bool(payload.request), "has_response_patch": bool(payload.response)},
+    )
+    if not decision.allowed:
+        raise HTTPException(status_code=403, detail=decision.reason)
     tx = await svc.edit_intercept(
         db,
         transaction_id,
@@ -236,6 +257,4 @@ async def edit_intercept(transaction_id: str, payload: ProxyInterceptEditRequest
         response_patch=payload.response,
         tags=payload.tags,
     )
-    if not tx:
-        raise HTTPException(status_code=404, detail="Intercept transaction not found")
     return tx

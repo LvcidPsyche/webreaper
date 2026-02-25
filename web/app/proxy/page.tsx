@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Play, Square, RefreshCw, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Play, Square, RefreshCw, ShieldAlert, ShieldCheck, Repeat, Crosshair } from 'lucide-react';
 import api from '@/lib/api';
 
 interface ProxySession {
@@ -59,6 +59,27 @@ export default function ProxyPage() {
   const [queuedOnly, setQueuedOnly] = useState(false);
   const [queueCount, setQueueCount] = useState(0);
   const [certStatus, setCertStatus] = useState<CertStatus | null>(null);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<Record<string, unknown>>('/api/governance/ui-preferences?page=proxy').then((prefs) => {
+      const saved = prefs['proxy.filters'];
+      if (saved && typeof saved === 'object') {
+        const v = saved as { queuedOnly?: boolean; methodFilter?: string; hostFilter?: string };
+        if (typeof v.queuedOnly === 'boolean') setQueuedOnly(v.queuedOnly);
+        if (typeof v.methodFilter === 'string') setMethodFilter(v.methodFilter);
+        if (typeof v.hostFilter === 'string') setHostFilter(v.hostFilter);
+      }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    api.put('/api/governance/ui-preferences', {
+      page: 'proxy',
+      key: 'proxy.filters',
+      value: { queuedOnly, methodFilter, hostFilter },
+    }).catch(() => {});
+  }, [queuedOnly, methodFilter, hostFilter]);
 
   const activeSession = useMemo(() => sessions.find((s) => s.id === selectedSessionId) ?? null, [sessions, selectedSessionId]);
 
@@ -160,6 +181,27 @@ export default function ProxyPage() {
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : `Failed to ${action} intercept item`);
+    }
+  }
+
+  async function sendSelectedTo(tool: 'repeater' | 'intruder') {
+    if (!selectedTx) return;
+    try {
+      setActionBusy(tool);
+      if (tool === 'repeater') {
+        await api.post('/api/repeater/send-to-repeater', { transaction_id: selectedTx.id });
+      } else {
+        await api.post('/api/intruder/send-to-intruder', {
+          transaction_id: selectedTx.id,
+          payloads: ['admin', 'test', 'debug'],
+          marker_target: 'url',
+        });
+      }
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `Failed sending to ${tool}`);
+    } finally {
+      setActionBusy(null);
     }
   }
 
@@ -271,6 +313,10 @@ export default function ProxyPage() {
               <div className="rounded border border-reaper-border bg-black/20 p-3 text-xs font-mono">
                 <div className="text-reaper-muted mb-1">Request</div>
                 <div className="text-white break-all">{selectedTx.method} {selectedTx.url}</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button disabled={actionBusy !== null} onClick={() => void sendSelectedTo('repeater')} className="px-2 py-1 rounded border border-blue-500/30 bg-blue-500/10 text-blue-300 text-[10px] font-mono inline-flex items-center gap-1 disabled:opacity-50"><Repeat className="w-3 h-3" /> Send to Repeater</button>
+                  <button disabled={actionBusy !== null} onClick={() => void sendSelectedTo('intruder')} className="px-2 py-1 rounded border border-purple-500/30 bg-purple-500/10 text-purple-300 text-[10px] font-mono inline-flex items-center gap-1 disabled:opacity-50"><Crosshair className="w-3 h-3" /> Send to Intruder</button>
+                </div>
                 {selectedTx.intercept_state === 'queued' && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button onClick={() => void interceptAction('forward', selectedTx)} className="px-2 py-1 rounded border border-green-500/30 bg-green-500/10 text-green-300 text-[10px] font-mono">Forward</button>

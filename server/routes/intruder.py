@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from webreaper.governance.policy import evaluate_policy, audit_log
 
 router = APIRouter()
 
@@ -30,6 +31,7 @@ class IntruderJobCreateRequest(BaseModel):
 
 class IntruderJobStartRequest(BaseModel):
     wait: bool = False
+    acknowledge_risk: bool = False
 
 
 class SendToIntruderRequest(BaseModel):
@@ -92,9 +94,24 @@ async def get_job(job_id: str, request: Request):
 async def start_job(job_id: str, payload: IntruderJobStartRequest, request: Request):
     db = _db(request)
     svc = _svc(request)
-    job = await svc.start_job(db, job_id, wait=payload.wait)
-    if not job:
+    existing = await db.get_intruder_job(job_id)
+    if not existing:
         raise HTTPException(status_code=404, detail='Intruder job not found')
+    decision = await evaluate_policy(db, existing.get("workspace_id"), "intruder.start", acknowledge=payload.acknowledge_risk)
+    await audit_log(
+        db,
+        workspace_id=existing.get("workspace_id"),
+        action="intruder.start",
+        allowed=decision.allowed,
+        resource_type="intruder_job",
+        resource_id=job_id,
+        policy_rule=decision.rule,
+        reason=decision.reason,
+        details={"wait": payload.wait},
+    )
+    if not decision.allowed:
+        raise HTTPException(status_code=403, detail=decision.reason)
+    job = await svc.start_job(db, job_id, wait=payload.wait)
     return _ser(job)
 
 
@@ -105,6 +122,7 @@ async def cancel_job(job_id: str, request: Request):
     job = await svc.cancel_job(db, job_id)
     if not job:
         raise HTTPException(status_code=404, detail='Intruder job not found')
+    await audit_log(db, workspace_id=job.get("workspace_id"), action="intruder.cancel", allowed=True, resource_type="intruder_job", resource_id=job_id)
     return _ser(job)
 
 

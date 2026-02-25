@@ -501,6 +501,88 @@ class IntruderResult(Base):
     created_at = Column(DateTime(timezone=True), default=_now, index=True)
 
 
+class FindingTriage(Base):
+    """Triage metadata and evidence links for security findings."""
+    __tablename__ = 'finding_triage'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    finding_id = Column(String(36), ForeignKey('security_findings.id', ondelete='CASCADE'), unique=True, index=True)
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
+    status = Column(String(20), default='open', index=True)  # open|accepted|in_progress|resolved|false_positive|duplicate|risk_accepted
+    assignee = Column(String(255))
+    tags = Column(JSON)
+    notes = Column(Text)
+    endpoint_id = Column(String(36), ForeignKey('endpoints.id', ondelete='SET NULL'), nullable=True, index=True)
+    transaction_id = Column(String(36), ForeignKey('http_transactions.id', ondelete='SET NULL'), nullable=True, index=True)
+    reproduction_steps = Column(JSON)
+    evidence_refs = Column(JSON)
+    updated_at = Column(DateTime(timezone=True), default=_now)
+    triaged_at = Column(DateTime(timezone=True), default=_now, index=True)
+
+
+class AuditLog(Base):
+    """Audit trail for risky/manual actions and policy decisions."""
+    __tablename__ = 'audit_logs'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
+    actor = Column(String(255), default='api')
+    action = Column(String(100), nullable=False, index=True)
+    resource_type = Column(String(50), index=True)
+    resource_id = Column(String(36), index=True)
+    allowed = Column(Boolean, default=True, index=True)
+    policy_rule = Column(String(100))
+    reason = Column(Text)
+    details = Column(JSON)
+    created_at = Column(DateTime(timezone=True), default=_now, index=True)
+
+
+class RunProfile(Base):
+    """Saved run profile for crawl/proxy/scan/intruder execution settings."""
+    __tablename__ = 'run_profiles'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
+    profile_type = Column(String(20), nullable=False, index=True)  # crawl|proxy|scan|intruder|automation
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
+    settings = Column(JSON)
+    created_at = Column(DateTime(timezone=True), default=_now, index=True)
+    updated_at = Column(DateTime(timezone=True), default=_now)
+
+
+class UIPreference(Base):
+    """Persisted UI preferences and saved views by page/workspace/user label."""
+    __tablename__ = 'ui_preferences'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
+    user_id = Column(String(255), default='local')
+    page = Column(String(50), nullable=False, index=True)
+    key = Column(String(100), nullable=False, index=True)
+    value = Column(JSON)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, index=True)
+
+
+class AutomationRun(Base):
+    """Automation chain execution record (crawl -> scan -> report)."""
+    __tablename__ = 'automation_runs'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
+    profile_id = Column(String(36), ForeignKey('run_profiles.id', ondelete='SET NULL'), nullable=True, index=True)
+    name = Column(String(255))
+    chain = Column(JSON)             # ["crawl", "scan", "report"]
+    inputs = Column(JSON)
+    outputs = Column(JSON)
+    status = Column(String(20), default='queued', index=True)  # queued|running|completed|failed|cancelled
+    started_at = Column(DateTime(timezone=True))
+    completed_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=_now, index=True)
+    updated_at = Column(DateTime(timezone=True), default=_now)
+
+
 class DashboardMetric(Base):
     """Real-time dashboard analytics data."""
     __tablename__ = 'dashboard_metrics'
@@ -1315,6 +1397,16 @@ class DatabaseManager:
                 LIMIT 20
             """))
             return [dict(r._mapping) for r in result.fetchall()]
+
+    async def mark_running_crawls_interrupted(self) -> int:
+        """Mark stale 'running' crawl rows as interrupted on process startup."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            result = await session.execute(
+                text("UPDATE crawls SET status = 'interrupted' WHERE status = 'running'")
+            )
+            return int(result.rowcount or 0)
 
     async def save_snapshot(self, url: str, content_hash: str, content_text: str,
                             title: Optional[str], status_code: int,
