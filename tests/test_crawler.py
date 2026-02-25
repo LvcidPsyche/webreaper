@@ -165,6 +165,8 @@ async def test_save_to_db_persists_rich_links_and_forms(mock_crawler_config, sam
     mock_db.save_page = AsyncMock(return_value="page-1")
     mock_db.save_links = AsyncMock()
     mock_db.save_forms = AsyncMock()
+    mock_db.upsert_endpoints = AsyncMock()
+    mock_db.derive_endpoints_from_page = MagicMock(return_value=[{"host": "example.com", "scheme": "https", "method": "GET", "path": "/"}])
 
     crawler = Crawler(mock_crawler_config, db_manager=mock_db)
     crawler._crawl_id = "crawl-1"
@@ -207,3 +209,5 @@ async def test_save_to_db_persists_rich_links_and_forms(mock_crawler_config, sam
     mock_db.save_forms.assert_called_once()
     save_forms_kwargs = mock_db.save_forms.await_args.kwargs
     assert save_forms_kwargs["forms"][0]["field_count"] >= 1
+
+    mock_db.upsert_endpoints.assert_called_once()

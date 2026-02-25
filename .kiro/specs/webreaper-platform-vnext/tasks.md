@@ -64,10 +64,10 @@
     - _Requirements: 4.1, 4.2, 4.3, 15.2_
 
 - [ ] 7. Build endpoint and parameter inventory as a shared substrate for scanning/manual tools
-  - [ ] 7.1 Add endpoint/parameter models and extraction pipelines from crawl and forms
+  - [x] 7.1 Add endpoint/parameter models and extraction pipelines from crawl and forms
     - Derive normalized endpoints/params from links, forms, and observed requests.
     - _Requirements: 1.2, 8.1, 8.4, 12.1_
-  - [ ] 7.2 Add API/query layer for endpoint inventory and parameter filters
+  - [x] 7.2 Add API/query layer for endpoint inventory and parameter filters
     - Support filtering by workspace, host, method, path, parameter names, and source.
     - _Requirements: 1.4, 9.4, 12.2_
   - [ ] 7.3 Seed passive scanner and manual tools from endpoint inventory

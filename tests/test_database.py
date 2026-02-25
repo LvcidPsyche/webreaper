@@ -215,3 +215,56 @@ async def test_save_forms_persists_field_metadata(temp_db):
     assert row["method"] == "POST"
     assert row["fields_count"] == 1
     assert row["csrf_protected"] in (1, True)
+
+
+@pytest.mark.asyncio
+async def test_endpoint_inventory_derive_and_upsert(temp_db):
+    crawl_id = await temp_db.create_crawl(target_url="https://example.com")
+    page_id = await temp_db.save_page(
+        crawl_id=crawl_id,
+        url="https://example.com/search?q=x",
+        domain="example.com",
+        path="/search",
+        status_code=200,
+        response_time_ms=10,
+        title="Search",
+        meta_description=None,
+        content_text="ok",
+        word_count=1,
+        headings=[],
+        headings_count=0,
+        images_count=0,
+        links_count=0,
+        external_links_count=0,
+        h1=None,
+        h2s=[],
+        response_headers={},
+        depth=0,
+    )
+
+    records = temp_db.derive_endpoints_from_page(
+        "https://example.com/search?q=x",
+        forms=[{
+            "action": "https://example.com/api/login",
+            "method": "POST",
+            "fields": [{"name": "email"}, {"name": "password"}, {"name": "csrf_token"}],
+            "enctype": "application/json",
+        }],
+        links=[{"url": "https://example.com/api/users?page=2"}],
+    )
+    assert len(records) >= 3
+
+    await temp_db.upsert_endpoints(crawl_id=crawl_id, page_id=page_id, endpoints=records)
+    await temp_db.upsert_endpoints(crawl_id=crawl_id, page_id=page_id, endpoints=records)  # idempotent merge path
+
+    async with temp_db.get_session() as session:
+        result = await session.execute(text("""
+            SELECT host, method, path, query_params, body_param_names, sources
+            FROM endpoints
+            WHERE crawl_id = :cid
+            ORDER BY path, method
+        """), {"cid": crawl_id})
+        rows = [dict(r._mapping) for r in result.fetchall()]
+
+    assert any(r["path"] == "/api/login" and r["method"] == "POST" for r in rows)
+    assert any(r["path"] == "/api/users" and r["method"] == "GET" for r in rows)

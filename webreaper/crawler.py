@@ -413,6 +413,20 @@ class Crawler:
                         forms=deep.forms,
                     )
 
+                # Build endpoint inventory from page + links + forms
+                if getattr(self.db_manager, "upsert_endpoints", None):
+                    endpoint_records = self.db_manager.derive_endpoints_from_page(
+                        result.url,
+                        forms=deep.forms,
+                        links=[{"url": l.url} for l in deep.links],
+                    )
+                    await self.db_manager.upsert_endpoints(
+                        crawl_id=self._crawl_id,
+                        page_id=page_id,
+                        endpoints=endpoint_records,
+                        workspace_id=self._workspace_id,
+                    )
+
                 # Save assets
                 await self._save_assets(page_id, deep)
 

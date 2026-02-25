@@ -538,3 +538,82 @@ async def structured_data_viewer(request: Request, crawl_id: str):
         "type_distribution": [{"type": t, "count": c} for t, c in sorted(type_counts.items(), key=lambda x: x[1], reverse=True)],
         "schemas": schemas[:200],  # Cap at 200 to avoid massive responses
     }
+
+
+# ── Endpoint Inventory ───────────────────────────────────────
+
+
+@router.get("/endpoints/{crawl_id}")
+async def endpoint_inventory(
+    request: Request,
+    crawl_id: str,
+    host: Optional[str] = None,
+    method: Optional[str] = None,
+    param: Optional[str] = None,
+    q: Optional[str] = None,
+    source: Optional[str] = None,
+    limit: int = Query(default=200, le=1000),
+    offset: int = 0,
+):
+    """Normalized endpoint inventory derived from crawl links/forms."""
+    db = _db(request)
+    async with db.get_session() as session:
+        result = await session.execute(text("""
+            SELECT id, host, scheme, method, path, query_params, body_param_names, content_types, sources, first_seen_at, last_seen_at
+            FROM endpoints
+            WHERE crawl_id = :cid
+            ORDER BY host, path, method
+        """), {"cid": crawl_id})
+        rows = [dict(r._mapping) for r in result.fetchall()]
+
+    def _json_list(v):
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+                return parsed if isinstance(parsed, list) else []
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return []
+
+    normalized = []
+    for row in rows:
+        row["query_params"] = _json_list(row.get("query_params"))
+        row["body_param_names"] = _json_list(row.get("body_param_names"))
+        row["content_types"] = _json_list(row.get("content_types"))
+        row["sources"] = _json_list(row.get("sources"))
+        for key in ("first_seen_at", "last_seen_at"):
+            if row.get(key) is not None and not isinstance(row[key], str):
+                row[key] = row[key].isoformat()
+        normalized.append(row)
+
+    if host:
+        normalized = [r for r in normalized if r.get("host") == host]
+    if method:
+        normalized = [r for r in normalized if (r.get("method") or "").upper() == method.upper()]
+    if param:
+        p = param.lower()
+        normalized = [
+            r for r in normalized
+            if p in {str(x).lower() for x in r.get("query_params", []) + r.get("body_param_names", [])}
+        ]
+    if source:
+        s = source.lower()
+        normalized = [r for r in normalized if s in {str(x).lower() for x in r.get("sources", [])}]
+    if q:
+        ql = q.lower()
+        normalized = [r for r in normalized if ql in f"{r.get('host','')}{r.get('path','')}".lower()]
+
+    total = len(normalized)
+    page = normalized[offset:offset + limit]
+
+    return {
+        "crawl_id": crawl_id,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "endpoints": page,
+    }

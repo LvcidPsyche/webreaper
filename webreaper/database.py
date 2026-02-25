@@ -19,6 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker, Session
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from urllib.parse import urlparse, parse_qs
 
 
 def _now():
@@ -304,6 +305,27 @@ class Technology(Base):
     detected_at = Column(DateTime(timezone=True), default=_now)
 
 
+class Endpoint(Base):
+    """Normalized endpoint inventory derived from crawl/proxy observations."""
+    __tablename__ = 'endpoints'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    crawl_id = Column(String(36), ForeignKey('crawls.id', ondelete='CASCADE'), index=True)
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
+    page_id = Column(String(36), ForeignKey('pages.id', ondelete='CASCADE'), nullable=True)
+
+    host = Column(String(255), index=True)
+    scheme = Column(String(10), index=True)
+    method = Column(String(16), index=True, default='GET')
+    path = Column(Text, index=True)
+    query_params = Column(JSON)       # ["q", "page"]
+    body_param_names = Column(JSON)   # ["email", "csrf_token"]
+    content_types = Column(JSON)      # ["application/x-www-form-urlencoded"]
+    sources = Column(JSON)            # ["crawl_link", "crawl_form", "page"]
+    first_seen_at = Column(DateTime(timezone=True), default=_now, index=True)
+    last_seen_at = Column(DateTime(timezone=True), default=_now, index=True)
+
+
 class DashboardMetric(Base):
     """Real-time dashboard analytics data."""
     __tablename__ = 'dashboard_metrics'
@@ -582,6 +604,107 @@ class DatabaseManager:
                     captcha_present=bool(form.get("has_captcha") or form.get("captcha_present")),
                 ))
             session.add_all(objs)
+
+    async def upsert_endpoints(self, crawl_id: str, page_id: Optional[str], endpoints: List[Dict[str, Any]], workspace_id: Optional[str] = None):
+        """Upsert normalized endpoint inventory rows keyed by crawl+method+scheme+host+path."""
+        if not endpoints:
+            return
+        if not self.async_session_maker:
+            await self.init_async()
+
+        from sqlalchemy import select
+
+        async with self.get_session() as session:
+            for ep in endpoints:
+                host = ep.get("host")
+                scheme = ep.get("scheme")
+                method = (ep.get("method") or "GET").upper()
+                path = ep.get("path") or "/"
+                if not host or not scheme:
+                    continue
+
+                existing = (
+                    await session.execute(
+                        select(Endpoint).where(
+                            Endpoint.crawl_id == crawl_id,
+                            Endpoint.host == host,
+                            Endpoint.scheme == scheme,
+                            Endpoint.method == method,
+                            Endpoint.path == path,
+                        )
+                    )
+                ).scalar_one_or_none()
+
+                def _uniq(items):
+                    return sorted({str(i) for i in (items or []) if i})
+
+                if existing:
+                    existing.last_seen_at = _now()
+                    existing.page_id = existing.page_id or page_id
+                    existing.workspace_id = existing.workspace_id or workspace_id
+                    existing.query_params = _uniq((existing.query_params or []) + (ep.get("query_params") or []))
+                    existing.body_param_names = _uniq((existing.body_param_names or []) + (ep.get("body_param_names") or []))
+                    existing.content_types = _uniq((existing.content_types or []) + (ep.get("content_types") or []))
+                    existing.sources = _uniq((existing.sources or []) + (ep.get("sources") or []))
+                    continue
+
+                session.add(
+                    Endpoint(
+                        crawl_id=crawl_id,
+                        workspace_id=workspace_id,
+                        page_id=page_id,
+                        host=host,
+                        scheme=scheme,
+                        method=method,
+                        path=path,
+                        query_params=_uniq(ep.get("query_params")),
+                        body_param_names=_uniq(ep.get("body_param_names")),
+                        content_types=_uniq(ep.get("content_types")),
+                        sources=_uniq(ep.get("sources")),
+                    )
+                )
+
+    @staticmethod
+    def derive_endpoints_from_page(url: str, forms: Optional[List[Dict[str, Any]]] = None, links: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+        """Derive normalized endpoint records from page URL, forms, and rich links."""
+        endpoints: List[Dict[str, Any]] = []
+
+        def _append_from_url(raw_url: str, method: str = "GET", *, source: str = "page", body_param_names: Optional[List[str]] = None, content_type: Optional[str] = None):
+            if not raw_url:
+                return
+            parsed = urlparse(raw_url)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                return
+            query_names = sorted(parse_qs(parsed.query).keys())
+            record = {
+                "host": parsed.netloc,
+                "scheme": parsed.scheme,
+                "method": method.upper(),
+                "path": parsed.path or "/",
+                "query_params": query_names,
+                "body_param_names": sorted({p for p in (body_param_names or []) if p}),
+                "content_types": [content_type] if content_type else [],
+                "sources": [source],
+            }
+            endpoints.append(record)
+
+        _append_from_url(url, "GET", source="page")
+
+        for link in links or []:
+            if isinstance(link, dict):
+                _append_from_url(link.get("url") or link.get("target_url"), "GET", source="crawl_link")
+            elif isinstance(link, str):
+                _append_from_url(link, "GET", source="crawl_link")
+
+        for form in forms or []:
+            action = form.get("action") or form.get("action_url") or url
+            method = form.get("method") or "GET"
+            fields = form.get("fields") or form.get("inputs") or []
+            field_names = [f.get("name") for f in fields if isinstance(f, dict)]
+            content_type = form.get("enctype") or ("application/x-www-form-urlencoded" if method.upper() != "GET" else None)
+            _append_from_url(action, method, source="crawl_form", body_param_names=field_names, content_type=content_type)
+
+        return endpoints
 
     async def save_finding(
         self,
