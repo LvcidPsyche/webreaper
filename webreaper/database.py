@@ -7,6 +7,7 @@ Set DATABASE_URL env var:
 """
 
 import os
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
@@ -28,6 +29,21 @@ def _now():
 
 def _uuid():
     return str(uuid.uuid4())
+
+
+def _decode_json_fields(row: Dict[str, Any], fields: List[str]) -> Dict[str, Any]:
+    """Best-effort JSON decode for SQLite text-returned JSON columns."""
+    out = dict(row)
+    for key in fields:
+        val = out.get(key)
+        if isinstance(val, str):
+            s = val.strip()
+            if (s.startswith("{") and s.endswith("}")) or (s.startswith("[") and s.endswith("]")):
+                try:
+                    out[key] = json.loads(s)
+                except Exception:
+                    pass
+    return out
 
 
 class Base(DeclarativeBase):
@@ -377,6 +393,45 @@ class HttpTransaction(Base):
     tags = Column(JSON)
     intercept_state = Column(String(20), default='none', index=True)  # none|queued|forwarded|dropped|edited
     truncated = Column(Boolean, default=False)
+
+    created_at = Column(DateTime(timezone=True), default=_now, index=True)
+
+
+class RepeaterTab(Base):
+    """Saved editable request for manual replay (Burp Repeater-like)."""
+    __tablename__ = 'repeater_tabs'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
+    source_transaction_id = Column(String(36), ForeignKey('http_transactions.id', ondelete='SET NULL'), nullable=True, index=True)
+
+    name = Column(String(255))
+    method = Column(String(16), nullable=False, default='GET')
+    url = Column(Text, nullable=False)
+    headers = Column(JSON)
+    body = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), default=_now, index=True)
+    updated_at = Column(DateTime(timezone=True), default=_now)
+    last_run_at = Column(DateTime(timezone=True))
+
+
+class RepeaterRun(Base):
+    """Execution record for a repeater tab replay attempt."""
+    __tablename__ = 'repeater_runs'
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    repeater_tab_id = Column(String(36), ForeignKey('repeater_tabs.id', ondelete='CASCADE'), index=True)
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='SET NULL'), nullable=True, index=True)
+    transaction_id = Column(String(36), ForeignKey('http_transactions.id', ondelete='SET NULL'), nullable=True, index=True)
+
+    status = Column(String(20), nullable=False, default='queued', index=True)  # queued|success|error
+    response_status = Column(Integer, index=True)
+    duration_ms = Column(Integer)
+    timeout_ms = Column(Integer)
+    follow_redirects = Column(Boolean, default=True)
+    error = Column(Text)
+    diff_summary = Column(JSON)
 
     created_at = Column(DateTime(timezone=True), default=_now, index=True)
 
@@ -780,7 +835,7 @@ class DatabaseManager:
         async with self.get_session() as session:
             result = await session.execute(text("SELECT * FROM proxy_sessions WHERE id = :id"), {"id": proxy_session_id})
             row = result.fetchone()
-            return dict(row._mapping) if row else None
+            return _decode_json_fields(dict(row._mapping), ["include_hosts", "exclude_hosts"]) if row else None
 
     async def list_proxy_sessions(self, workspace_id: Optional[str] = None) -> List[Dict[str, Any]]:
         if not self.async_session_maker:
@@ -793,7 +848,7 @@ class DatabaseManager:
                 )
             else:
                 result = await session.execute(text("SELECT * FROM proxy_sessions ORDER BY created_at DESC"))
-            return [dict(r._mapping) for r in result.fetchall()]
+            return [_decode_json_fields(dict(r._mapping), ["include_hosts", "exclude_hosts"]) for r in result.fetchall()]
 
     async def save_http_transaction(self, record: Dict[str, Any]) -> str:
         """Persist a captured HTTP transaction."""
@@ -804,6 +859,18 @@ class DatabaseManager:
             session.add(obj)
             await session.flush()
             return str(obj.id)
+
+    async def get_http_transaction(self, transaction_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch a single HTTP transaction by id."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            result = await session.execute(
+                text("SELECT * FROM http_transactions WHERE id = :id"),
+                {"id": transaction_id},
+            )
+            row = result.fetchone()
+            return _decode_json_fields(dict(row._mapping), ["request_headers", "response_headers", "tags"]) if row else None
 
     async def list_http_transactions(
         self,
@@ -837,9 +904,92 @@ class DatabaseManager:
             sql += " ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
             params["limit"] = limit
             params["offset"] = offset
-            rows = [dict(r._mapping) for r in (await session.execute(text(sql), params)).fetchall()]
+            rows = [
+                _decode_json_fields(dict(r._mapping), ["request_headers", "response_headers", "tags"])
+                for r in (await session.execute(text(sql), params)).fetchall()
+            ]
             total = (await session.execute(text(count_sql), params)).scalar_one()
             return {"total": total, "transactions": rows}
+
+    async def create_repeater_tab(self, record: Dict[str, Any]) -> str:
+        """Create a repeater tab row."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            obj = RepeaterTab(**record)
+            session.add(obj)
+            await session.flush()
+            return str(obj.id)
+
+    async def update_repeater_tab(self, tab_id: str, **kwargs) -> bool:
+        """Update a repeater tab row."""
+        if not kwargs:
+            return True
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            exists = await session.execute(text("SELECT id FROM repeater_tabs WHERE id = :id"), {"id": tab_id})
+            if not exists.fetchone():
+                return False
+            sets = ", ".join([f"{k} = :{k}" for k in kwargs.keys()])
+            await session.execute(
+                text(f"UPDATE repeater_tabs SET {sets} WHERE id = :id"),
+                {"id": tab_id, **kwargs},
+            )
+            return True
+
+    async def get_repeater_tab(self, tab_id: str) -> Optional[Dict[str, Any]]:
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            result = await session.execute(text("SELECT * FROM repeater_tabs WHERE id = :id"), {"id": tab_id})
+            row = result.fetchone()
+            return _decode_json_fields(dict(row._mapping), ["headers"]) if row else None
+
+    async def list_repeater_tabs(self, workspace_id: Optional[str] = None, limit: int = 200) -> List[Dict[str, Any]]:
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            if workspace_id:
+                result = await session.execute(
+                    text("SELECT * FROM repeater_tabs WHERE workspace_id = :wid ORDER BY updated_at DESC, created_at DESC LIMIT :limit"),
+                    {"wid": workspace_id, "limit": limit},
+                )
+            else:
+                result = await session.execute(
+                    text("SELECT * FROM repeater_tabs ORDER BY updated_at DESC, created_at DESC LIMIT :limit"),
+                    {"limit": limit},
+                )
+            return [_decode_json_fields(dict(r._mapping), ["headers"]) for r in result.fetchall()]
+
+    async def create_repeater_run(self, record: Dict[str, Any]) -> str:
+        """Create a repeater run row."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            obj = RepeaterRun(**record)
+            session.add(obj)
+            await session.flush()
+            return str(obj.id)
+
+    async def list_repeater_runs(self, tab_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """List repeater runs for a tab, newest first."""
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            result = await session.execute(
+                text("SELECT * FROM repeater_runs WHERE repeater_tab_id = :id ORDER BY created_at DESC LIMIT :limit"),
+                {"id": tab_id, "limit": limit},
+            )
+            return [_decode_json_fields(dict(r._mapping), ["diff_summary"]) for r in result.fetchall()]
+
+    async def get_repeater_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        if not self.async_session_maker:
+            await self.init_async()
+        async with self.get_session() as session:
+            result = await session.execute(text("SELECT * FROM repeater_runs WHERE id = :id"), {"id": run_id})
+            row = result.fetchone()
+            return _decode_json_fields(dict(row._mapping), ["diff_summary"]) if row else None
 
     @staticmethod
     def derive_endpoints_from_page(url: str, forms: Optional[List[Dict[str, Any]]] = None, links: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:

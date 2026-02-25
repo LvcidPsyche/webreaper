@@ -113,7 +113,7 @@
   - _Requirements: 6.3, 14.4, 12.2_
 
 - [ ] 12. Build proxy history UI and live interception workflow
-  - [ ] 12.1 Create Proxy page with history table, filters, and raw request/response viewers
+  - [x] 12.1 Create Proxy page with history table, filters, and raw request/response viewers
     - Add workspace-scoped search/filter/sort/bulk tag actions for captured traffic.
     - _Requirements: 6.4, 9.1, 9.4_
   - [ ] 12.2 Implement live interception queue UI controls and status indicators
@@ -123,20 +123,20 @@
     - _Requirements: 9.2, 9.4, 15.2_
 
 - [ ] 13. Implement Repeater backend MVP (manual request replay)
-  - [ ] 13.1 Add Repeater models and APIs (`tabs`, `runs`, `send-to-repeater`)
+  - [x] 13.1 Add Repeater models and APIs (`tabs`, `runs`, `send-to-repeater`)
     - Persist editable requests and replay history linked to workspace and source transactions.
     - _Requirements: 7.1, 7.2, 1.2_
-  - [ ] 13.2 Implement request execution engine with response diffing
+  - [x] 13.2 Implement request execution engine with response diffing
     - Replay requests with timeout/redirect controls and compute structured diffs vs prior runs.
     - _Requirements: 7.2, 8.4, 14.1_
-  - [ ] 13.3 Add integration tests for replay execution and failure cases
+  - [x] 13.3 Add integration tests for replay execution and failure cases
     - _Requirements: 7.2, 14.2, 15.2_
 
 - [ ] 14. Build Repeater UI and Decoder utilities
   - [ ] 14.1 Create Repeater page with raw/structured editors and response diff views
     - Support multi-tab workflow and send-to-repeater from proxy history/finding evidence.
     - _Requirements: 7.1, 7.2, 9.1, 9.4_
-  - [ ] 14.2 Implement Decoder utilities (URL/Base64/HTML/hex/JWT parse)
+  - [x] 14.2 Implement Decoder utilities (URL/Base64/HTML/hex/JWT parse)
     - Add stateless transform utilities and UI panel integrated into Repeater/security workflows.
     - _Requirements: 7.4, 9.1_
   - [ ] 14.3 Add frontend tests for editor state and decoder transforms
