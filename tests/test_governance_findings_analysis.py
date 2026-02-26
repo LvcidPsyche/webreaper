@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from server.routes import workspaces, security, intruder, governance, analysis
 from webreaper.intruder.service import IntruderService
+from webreaper.database import UIPreference
 
 
 class _FakeAsyncClient:
@@ -196,3 +199,34 @@ def test_profiles_ui_preferences_and_automation(temp_db):
         runs = client.get('/api/governance/automation/runs')
         assert runs.status_code == 200
         assert any(r['id'] == body['id'] for r in runs.json())
+
+
+def test_ui_preferences_put_recovers_from_duplicate_rows(temp_db):
+    now = datetime.now(timezone.utc)
+
+    async def _seed_dupes():
+        async with temp_db.get_session() as s:
+            s.add_all([
+                UIPreference(user_id='local', page='proxy', key='dupe.key', value={'a': 1}, created_at=now, updated_at=now),
+                UIPreference(user_id='local', page='proxy', key='dupe.key', value={'a': 2}, created_at=now, updated_at=now),
+            ])
+
+    async def _count_rows():
+        async with temp_db.get_session() as s:
+            return len((await s.execute(select(UIPreference).where(UIPreference.page == 'proxy', UIPreference.key == 'dupe.key'))).scalars().all())
+
+    asyncio.run(_seed_dupes())
+
+    app = _make_app(temp_db)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        resp = client.put('/api/governance/ui-preferences', json={
+            'page': 'proxy',
+            'key': 'dupe.key',
+            'value': {'a': 3},
+        })
+        assert resp.status_code == 200, resp.text
+        got = client.get('/api/governance/ui-preferences?page=proxy')
+        assert got.status_code == 200
+        assert got.json()['dupe.key'] == {'a': 3}
+
+    assert asyncio.run(_count_rows()) == 1

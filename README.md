@@ -1,273 +1,114 @@
-# WebReaper - Ultimate Web Scraper 🕷️
+# WebReaper
 
-> A high-performance web scraper exceeding Screaming Frog SEO Spider + Burp Suite capabilities.
-> Built for speed, stealth, and maximum data extraction.
+WebReaper is a **workspace-first web reconnaissance platform** that combines:
+- **Screaming Frog-class crawling / technical SEO inventory**
+- **Burp-style proxy/manual tooling foundations** (Proxy, Repeater, Intruder)
+- **Security scanning + findings triage/reporting**
+- **Interactive Next.js UI + FastAPI backend**
 
-## 🚀 Quick Start
-
-```bash
-# One-line installation
-curl -sSL https://raw.githubusercontent.com/yourrepo/webreaper/main/install.sh | bash
-
-# Or manually
-git clone https://github.com/yourrepo/webreaper.git
-cd webreaper
-./install.sh
-
-# Start scraping
-webreaper crawl https://example.com
-webreaper dashboard  # Launch animated UI
-```
-
-## ✨ Features
-
-### Core Capabilities
-- ⚡ **Ultra-fast async crawling** - 1000+ requests/second
-- 🎯 **Recursive crawling** - Configurable depth, domain restrictions
-- 🧅 **Stealth mode** - Tor routing, fingerprint randomization
-- 🔒 **Security testing** - XSS, SQLi, IDOR detection (Burp Suite-style)
-- 📰 **Blogwatcher integration** - RSS generation for RSS-less sites
-- 🎨 **12 Information Genres** - Specialized scraping for different content types
-
-### Advanced Features
-- 🎭 **Browser fingerprint rotation** - Avoid detection
-- 🌐 **Proxy support** - HTTP, SOCKS5, Tor
-- 📊 **Multiple output formats** - JSON, CSV, XML, RSS
-- 🎮 **Interactive dashboard** - Animated UI with real-time stats
-- 🤖 **AI content synthesis** - Auto-summarization and categorization
-- 🔍 **Deep inspection** - JavaScript rendering, WebSocket capture
-
-## 🎮 Interactive Dashboard
-
-Launch the kickass animated dashboard:
-
-```bash
-webreaper dashboard
-```
-
-**Features:**
-- 🃤 12 animated genre cards with pulse effects
-- 📈 Real-time scraping statistics
-- 🔥 Hot topics live feed
-- ⚡ Request speedometer
-- 🎯 Live URL monitoring
-- ⌨️  Vim-style keyboard shortcuts
-
-### Dashboard Controls
-- `S` - Start scraping
-- `P` - Pause
-- `G` - Genre selector
-- `R` - Generate report
-- `Q` - Quit
-- `?` - Help
-
-## 📚 Commands
-
-### Basic Crawl
-```bash
-# Simple crawl
-webreaper crawl https://example.com
-
-# Deep crawl with 1000 concurrent workers
-webreaper crawl https://example.com --depth 5 --concurrency 1000
-
-# Stealth mode with Tor
-webreaper crawl https://example.com --stealth --tor --delay-min 1 --delay-max 5
-```
-
-### Security Scan
-```bash
-# Scan for vulnerabilities
-webreaper security https://example.com
-
-# Aggressive testing (send payloads)
-webreaper security https://example.com --auto-attack
-```
-
-### Blogwatcher Bridge
-```bash
-# Scrape RSS-less blog and generate feed
-webreaper blogwatcher https://example.com/blog --name "Example Blog"
-
-# Auto-import to blogwatcher
-webreaper integration https://example.com --name "Site Name"
-```
-
-### Genre-Specific Scraping
-```bash
-# Focus on cybersecurity content
-webreaper crawl https://example.com --genre cybersecurity
-
-# Multiple genres
-webreaper crawl https://example.com --genre ai_ml --genre science
-```
-
-## 🎨 12 Information Genres
-
-| Genre | Icon | Focus |
-|-------|------|-------|
-| 🔒 Cybersecurity | Shield | CVEs, exploits, threat intel |
-| 🤖 AI/ML | Robot | Research papers, models, benchmarks |
-| 💻 Systems | Computer | Kernel, cloud, distributed systems |
-| 🔧 Hardware | Wrench | PCB, electronics, SDR |
-| 🎮 Reverse Eng | Gamepad | Binary analysis, game hacking |
-| 🌐 Web Dev | Globe | Frameworks, performance |
-| 📊 Data Science | Chart | Datasets, visualization |
-| 🚀 Startups | Rocket | Funding, business analysis |
-| 🔬 Science | Microscope | Research papers, discoveries |
-| 🎨 Creative | Palette | Generative art, demoscene |
-| 🏛️ Government | Building | FOIA, documents, transparency |
-| 🎲 Niche | Die | Esolangs, vintage, obscure |
-
-## ⚙️ Configuration
-
-Edit `~/.config/webreaper/config.yaml`:
-
-```yaml
-crawler:
-  max_depth: 3
-  concurrency: 100
-  rate_limit: 10
-
-stealth:
-  enabled: true
-  rotate_ua: true
-  tor_enabled: false
-  delay_min: 0.5
-  delay_max: 3.0
-
-security:
-  enabled: true
-  xss_detection: true
-  sqli_detection: true
-
-blogwatcher:
-  enabled: true
-  output_format: "rss"
-```
-
-## 🧅 Gray Area Features
-
-**All disabled by default. Enable at your own risk.**
-
-| Feature | Description | Config |
-|---------|-------------|--------|
-| Tor Routing | Route through Tor network | `tor_enabled: true` |
-| CAPTCHA Solving | Auto-solve CAPTCHAs | `captcha_service: 2captcha` |
-| Anti-Bot Evasion | Bypass Cloudflare, etc. | `aggressive_mode: true` |
-| Request Forging | Spoof headers, TLS | `rotate_ja3: true` |
-
-**Legal Warning:** Only use on systems you own or have explicit permission to test.
-
-## 🔌 Blogwatcher Integration
-
-WebReaper seamlessly integrates with blogwatcher for RSS-less sites:
-
-```bash
-# When blogwatcher finds a site without RSS,
-# it automatically uses WebReaper to scrape and generate a feed
-
-blogwatcher add "Site Name" "https://example.com"
-# → Detects no RSS
-# → Auto-runs WebReaper
-# → Generates feed
-# → Imports to blogwatcher
-```
-
-## 📊 Performance Benchmarks
-
-| Metric | WebReaper | Screaming Frog |
-|--------|-----------|----------------|
-| Requests/sec | 1000+ | ~200 |
-| Concurrent | 1000 | ~50 |
-| Pages/min | 50,000+ | ~5,000 |
-| Memory (100k pages) | 2GB | 4GB+ |
-| Startup Time | 2s | 10s+ |
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────┐
-│                  WEBREAPER CORE                      │
-├─────────────────────────────────────────────────────┤
-│  Crawler → Stealth → Security → Output → Dashboard  │
-│     ↓         ↓          ↓         ↓         ↓     │
-│  Frontier   Tor      Scanner    RSS       Live UI  │
-│  Fetcher    Proxy    Fuzzer     JSON      Anime    │
-│  Parser     Finger   Detector   CSV       Stats    │
-└─────────────────────────────────────────────────────┘
-                          │
-              ┌───────────┴───────────┐
-              ▼                       ▼
-        Blogwatcher              12 Genres
-        Integration              Presets
-```
-
-## 📝 Output Examples
-
-### JSON Output
-```json
-{
-  "url": "https://example.com/page",
-  "title": "Page Title",
-  "status": 200,
-  "links": ["..."],
-  "external_links": ["..."],
-  "word_count": 1500,
-  "forms": [...],
-  "security_findings": [...]
-}
-```
-
-### Security Report
-```json
-{
-  "total_findings": 5,
-  "severity_breakdown": {
-    "High": 2,
-    "Medium": 2,
-    "Low": 1
-  },
-  "findings": [
-    {
-      "type": "XSS",
-      "severity": "High",
-      "parameter": "search",
-      "evidence": "..."
-    }
-  ]
-}
-```
-
-## 🧪 Testing
-
-```bash
-# Run tests
-pytest tests/
-
-# Test specific module
-pytest tests/test_crawler.py
-
-# Run with coverage
-pytest --cov=webreaper tests/
-```
-
-## 🤝 Contributing
-
-1. Fork the repo
-2. Create feature branch: `git checkout -b feature/amazing`
-3. Commit changes: `git commit -m 'Add amazing feature'`
-4. Push: `git push origin feature/amazing`
-5. Open PR
-
-## 📜 License
-
-MIT License - See LICENSE file
-
-## ⚠️ Disclaimer
-
-This tool is for educational and authorized testing purposes only. Users are responsible for complying with applicable laws and terms of service.
+> This repo now includes browser-rendered crawling, proxy history/intercept queue, Repeater replay+Decoder, Intruder fuzzing backend/UI, governance policies/audit logs, and reporting/export workflows.
 
 ---
 
-**Built with** 🕷️ **by OpenClaw** | **Happy Scraping!**
+## What’s in the platform now
+
+### Crawl + Analysis
+- Async crawler with deep extraction persistence
+- Browser-rendered crawl mode (Playwright foundation + fallback to HTTP)
+- Endpoint/parameter inventory (links/forms/observed requests)
+- SEO/content/technology analytics
+- Duplicate content + link health analytics
+- Manual tool seeds from endpoint inventory
+
+### Burp-style toolset (foundations)
+- **Proxy**: session lifecycle, HTTP history, capture endpoint, intercept queue, forward/drop/edit actions
+- **Repeater**: save/edit requests, replay, response diff summaries
+- **Decoder**: URL/Base64/HTML/hex/JWT parsing helpers + UI
+- **Intruder (MVP)**: payload markers (`§FUZZ§`), queued fuzzing runs, throttling, stop conditions, result triage
+
+### Security + Governance
+- Passive + active scanning paths (modular scan engine wrappers)
+- Findings triage workflow + report export (JSON / Markdown)
+- Workspace risk policies (acknowledgment gates)
+- Audit logging for risky/manual actions
+- Run profiles + UI preference persistence + automation chain skeleton
+
+---
+
+## Quick start (local dev)
+
+### 1) Start everything
+```bash
+./start.sh
+```
+
+This boots:
+- FastAPI backend: `http://localhost:8000`
+- Next.js dashboard: `http://localhost:3000`
+
+### 2) Open the dashboard
+- Dashboard: `http://localhost:3000`
+- API docs: `http://localhost:8000/docs`
+
+---
+
+## Dev commands
+
+### Backend tests
+```bash
+./.venv/bin/pytest -q tests
+```
+
+### Frontend typecheck + UI utility tests
+```bash
+cd web
+npx tsc --noEmit
+npx vitest run
+```
+
+### Regression smoke / benchmark harness
+```bash
+./scripts/regression_smoke.sh
+./scripts/benchmark_webreaper.py --max-seconds 15
+```
+
+See also: `docs/benchmarks.md`
+
+---
+
+## Demo flow (recommended)
+
+A good local demo sequence:
+1. **Dashboard** → verify live metrics stream
+2. **Jobs** → start a crawl (optionally enable browser render)
+3. **Data** → inspect pages, SEO/content/tech/contact views
+4. **Proxy** → start session, inspect history, use intercept queue actions
+5. **Repeater** → send a request to repeater and compare response diffs
+6. **Intruder** → create a fuzz job with `§FUZZ§` markers and run/triage results
+7. **Security** → run on-demand scan, triage findings, export report (JSON/Markdown)
+
+More detail (with screenshots): **`docs/demo-flow.md`**
+
+For a reproducible local UI demo dataset/screenshots, use: **`scripts/seed_demo_data.py`**
+
+---
+
+## Architecture (high level)
+
+- **Backend**: FastAPI + SQLAlchemy (async) + Alembic migrations
+- **Frontend**: Next.js (App Router) + TypeScript
+- **Storage**: SQLite (local default), Postgres-compatible model layout
+- **Streaming**: SSE (metrics/logs/job progress) + WS chat/gateway
+- **Security tooling**: Proxy/Repeater/Intruder data persisted into shared HTTP transaction storage
+
+---
+
+## Notes / current scope
+
+This is a fast-moving build. Some advanced capabilities are currently **foundational/MVP** (especially full MITM runtime integration, advanced intruder attack modes, and richer proxy live events), but the core data model, APIs, UI flows, and test harnesses are in place and expanding rapidly.
+
+---
+
+## Legal / Safety
+
+Only use active scanning, fuzzing, interception, or security testing features against systems you own or are explicitly authorized to test.

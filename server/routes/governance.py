@@ -155,7 +155,12 @@ async def put_ui_preference(payload: UIPreferencePutRequest, request: Request):
             UIPreference.page == payload.page,
             UIPreference.key == payload.key,
         )
-        row = (await session.execute(q)).scalar_one_or_none()
+        rows = (await session.execute(q.order_by(UIPreference.updated_at.desc(), UIPreference.created_at.desc(), UIPreference.id.desc()))).scalars().all()
+        row = rows[0] if rows else None
+        if len(rows) > 1:
+            # Recover gracefully from duplicate rows created by concurrent writes in legacy schema.
+            for dup in rows[1:]:
+                await session.delete(dup)
         if not row:
             row = UIPreference(
                 workspace_id=payload.workspace_id,

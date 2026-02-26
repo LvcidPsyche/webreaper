@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { FileText, Shield, Play, Layers, Zap, AlertTriangle } from 'lucide-react';
+import Link from 'next/link';
+import { FileText, Shield, Play, Layers, Zap, AlertTriangle, Repeat, Crosshair, Database, Network } from 'lucide-react';
 import { MetricCard } from '@/components/dashboard/metric-card';
 import { ThroughputChart } from '@/components/dashboard/throughput-chart';
 import { StatusDonut } from '@/components/dashboard/status-donut';
@@ -73,6 +74,39 @@ export default function DashboardPage() {
 
       <AnimateIn delay={0.25}>
         <QueueGauge depth={metrics.queue_depth} />
+      </AnimateIn>
+
+      <AnimateIn delay={0.3}>
+        <div className="ghost-panel">
+          <div className="h-[2px] w-full bg-ghost-blue" />
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="ghost-label">Operations Cockpit</h2>
+              <span className="text-[10px] font-mono text-ghost-dim">WORKFLOW</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+              {[
+                { href: '/jobs', label: 'Jobs', icon: Play },
+                { href: '/data', label: 'Data', icon: Database },
+                { href: '/security', label: 'Findings', icon: Shield },
+                { href: '/proxy', label: 'Proxy', icon: Network },
+                { href: '/repeater', label: 'Repeater', icon: Repeat },
+                { href: '/intruder', label: 'Intruder', icon: Crosshair },
+              ].map(({ href, label, icon: Icon }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className="rounded border border-ghost-border hover:border-ghost-green/40 bg-black/20 hover:bg-black/30 px-3 py-2 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Icon className="w-3.5 h-3.5 text-ghost-green" />
+                    <span className="text-xs font-mono text-white">{label}</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
       </AnimateIn>
     </div>
   );
