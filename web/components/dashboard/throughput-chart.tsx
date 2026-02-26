@@ -63,6 +63,7 @@ export function ThroughputChart({ data }: ThroughputChartProps) {
                 dataKey="value"
                 stroke="#39ff14"
                 strokeWidth={1.5}
+                isAnimationActive={false}
                 dot={false}
                 activeDot={{ r: 2, fill: '#39ff14', stroke: 'none' }}
               />

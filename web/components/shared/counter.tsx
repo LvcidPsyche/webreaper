@@ -13,17 +13,22 @@ interface CounterProps {
 
 export function Counter({
   value,
-  duration = 600,
+  duration = 0,
   decimals = 0,
   prefix = '',
   suffix = '',
   className,
 }: CounterProps) {
-  const [display, setDisplay] = useState(0);
+  const [display, setDisplay] = useState(value);
   const prevRef = useRef(0);
   const frameRef = useRef<number>(0);
 
   useEffect(() => {
+    if (duration <= 0) {
+      prevRef.current = value;
+      setDisplay(value);
+      return;
+    }
     const start = prevRef.current;
     const diff = value - start;
     const startTime = performance.now();

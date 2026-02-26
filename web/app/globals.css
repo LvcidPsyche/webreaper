@@ -6,49 +6,21 @@
 
 :root {
   color-scheme: dark;
-  --ghost-green: #39ff14;
-  --ghost-blue:  #4d9fd4;
-  --ghost-red:   #ff2a2a;
-  --ghost-amber: #ff8800;
+  --ghost-green: #22c55e;
+  --ghost-blue:  #60a5fa;
+  --ghost-red:   #ef4444;
+  --ghost-amber: #f59e0b;
 }
 
 /* ── Base ────────────────────────────────────────── */
 html {
-  background-color: #04050a;
+  background-color: #0b1017;
 }
 
 body {
-  background-color: #04050a;
-  color: #b8c8d8;
+  background-color: #0b1017;
+  color: #cbd5e1;
   font-family: 'Share Tech Mono', ui-monospace, Consolas, monospace;
-  /* Subtle dot-grid — oscilloscope paper */
-  background-image: radial-gradient(circle, #141c28 1px, transparent 1px);
-  background-size: 24px 24px;
-  background-attachment: fixed;
-}
-
-/* ── Scanline overlay ────────────────────────────── */
-body::after {
-  content: '';
-  pointer-events: none;
-  position: fixed;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    rgba(57, 255, 20, 0.06) 50%,
-    transparent
-  );
-  animation: scanline 10s linear infinite;
-  z-index: 9999;
-  top: 0;
-}
-
-@keyframes scanline {
-  0%   { top: -4px; }
-  100% { top: 100vh; }
 }
 
 /* ── Scrollbar ───────────────────────────────────── */
@@ -59,38 +31,26 @@ body::after {
 
 /* ── Selection ───────────────────────────────────── */
 ::selection {
-  background: rgba(57, 255, 20, 0.15);
-  color: #39ff14;
+  background: rgba(96, 165, 250, 0.18);
+  color: #bfdbfe;
 }
 
 /* ── Skeleton shimmer ────────────────────────────── */
 .skeleton-shimmer {
-  background: linear-gradient(90deg, #0c1018 25%, #141c28 50%, #0c1018 75%);
+  background: #141c28;
   background-size: 200% 100%;
-  animation: shimmer 1.8s ease-in-out infinite;
-}
-
-@keyframes shimmer {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
 }
 
 /* ── Cursor blink ────────────────────────────────── */
 .cursor-blink::after {
   content: '_';
-  animation: blink 1.1s step-end infinite;
-  color: var(--ghost-green);
-}
-
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0; }
+  color: #94a3b8;
 }
 
 /* ── Ghost panel ─────────────────────────────────── */
 .ghost-panel {
-  background: #080b12;
-  border: 1px solid #141c28;
+  background: #0f172a;
+  border: 1px solid #1e293b;
 }
 
 /* Left-accent panel border */
@@ -103,7 +63,7 @@ body::after {
   font-size: 0.62rem;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: #3d6080;
+  color: #94a3b8;
 }
 
 /* ── Live dot ────────────────────────────────────── */
@@ -112,23 +72,11 @@ body::after {
   height: 6px;
   border-radius: 50%;
   background: var(--ghost-green);
-  box-shadow: 0 0 6px var(--ghost-green), 0 0 12px rgba(57,255,20,0.4);
-  animation: pulseSoft 2s ease-in-out infinite;
-}
-
-@keyframes pulseSoft {
-  0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--ghost-green), 0 0 12px rgba(57,255,20,0.4); }
-  50%       { opacity: 0.4; box-shadow: 0 0 2px var(--ghost-green); }
 }
 
 /* ── Boot animation ──────────────────────────────── */
 .animate-boot {
-  animation: boot 500ms ease-out both;
-}
-
-@keyframes boot {
-  0%   { opacity: 0; letter-spacing: 0.4em; }
-  100% { opacity: 1; letter-spacing: 0.05em; }
+  animation: none;
 }
 
 /* ── Line clamp ──────────────────────────────────── */
@@ -141,35 +89,35 @@ body::after {
 
 /* ── Recharts overrides ──────────────────────────── */
 .recharts-cartesian-grid line {
-  stroke: #0e1520 !important;
+  stroke: #1f2937 !important;
 }
 
 /* ── Table ───────────────────────────────────────── */
 .ghost-table thead tr {
-  border-bottom: 1px solid #141c28;
+  border-bottom: 1px solid #1e293b;
 }
 
 .ghost-table tbody tr {
-  border-bottom: 1px solid #0e1520;
+  border-bottom: 1px solid #111827;
   transition: background 100ms;
 }
 
 .ghost-table tbody tr:hover {
-  background: rgba(20, 28, 40, 0.6);
+  background: rgba(30, 41, 59, 0.45);
 }
 
 /* ── Input ───────────────────────────────────────── */
 input, select, textarea {
-  background: #04050a;
-  border-color: #141c28;
-  color: #b8c8d8;
+  background: #0b1017;
+  border-color: #1e293b;
+  color: #cbd5e1;
   font-family: 'Share Tech Mono', monospace;
 }
 
 input:focus, select:focus, textarea:focus {
-  border-color: #39ff14 !important;
+  border-color: #60a5fa !important;
   outline: none;
-  box-shadow: 0 0 0 1px rgba(57,255,20,0.15);
+  box-shadow: 0 0 0 1px rgba(96,165,250,0.18);
 }
 
 /* ── Button base ─────────────────────────────────── */

@@ -25,7 +25,7 @@ export function QueueGauge({ depth, max = 1000 }: QueueGaugeProps) {
         </div>
         <div className="h-1 bg-ghost-border overflow-hidden">
           <div
-            className="h-full transition-all duration-500 ease-out"
+            className="h-full"
             style={{ width: `${pct}%`, backgroundColor: color }}
           />
         </div>

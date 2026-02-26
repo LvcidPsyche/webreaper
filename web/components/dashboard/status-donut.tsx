@@ -32,6 +32,7 @@ export function StatusDonut({ statusCodes }: StatusDonutProps) {
                   paddingAngle={2}
                   dataKey="value"
                   strokeWidth={0}
+                  isAnimationActive={false}
                 >
                   {data.map((entry, i) => (
                     <Cell key={i} fill={entry.color} stroke="transparent" />
