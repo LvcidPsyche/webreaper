@@ -10,7 +10,7 @@ from sqlalchemy import text
 from webreaper.config import Config
 from webreaper.crawler import Crawler
 from webreaper.license import get_tier, get_page_limit, is_admin
-from webreaper.usage import check_page_budget, increment_usage
+from webreaper.usage import add_pages, can_crawl, check_page_budget, get_usage, increment_usage
 
 router = APIRouter()
 
@@ -99,13 +99,10 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
     if not is_admin():
         tier = get_tier()
         page_limit = get_page_limit()
-        # Mock usage check for now to allow compiling
-        # allowed, reason = can_crawl(req.max_pages, page_limit)
-        allowed, reason = True, "OK"
+        allowed, reason = can_crawl(req.max_pages, page_limit)
         if not allowed:
             raise HTTPException(status_code=402, detail=f"License limit: {reason}")
         if page_limit is not None:
-            from webreaper.usage import get_usage
             used = get_usage().get("pages_crawled", 0)
             remaining = page_limit - used
             effective_max = min(req.max_pages, remaining)
@@ -137,7 +134,7 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
     async def run_job():
         try:
             await crawler.crawl(req.urls, callback=None)
-            # add_pages(crawler.stats["pages_crawled"])
+            add_pages(crawler.stats.get("pages_crawled", 0))
             # Optional post-crawl security scan
             if req.security_scan:
                 await _run_post_crawl_scan(req.urls[0], db, job_id, request)
