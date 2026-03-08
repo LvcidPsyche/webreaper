@@ -1,10 +1,16 @@
-"""Shared test fixtures."""
+"""Shared test fixtures.
+
+Includes both the original infrastructure fixtures (temp_db, mock_crawler_config, etc.)
+and the new auth mock fixtures from the FIXSHEET review.
+"""
 
 import asyncio
 import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock
 from bs4 import BeautifulSoup
+
+from webreaper.auth import AuthUser, _verify_token
 
 
 # ── Pytest-asyncio configuration ───────────────────────────
@@ -36,6 +42,57 @@ def mock_db_session():
     session.__aenter__ = AsyncMock(return_value=session)
     session.__aexit__ = AsyncMock(return_value=False)
     return session
+
+
+# ── Auth mock fixtures (from FIXSHEET review) ───────────────
+# These replace DEV_SKIP_AUTH with proper FastAPI dependency overrides.
+
+TEST_USER = AuthUser(
+    id="test-user-001",
+    email="test@example.com",
+    plan="agency",
+)
+
+
+@pytest.fixture()
+def test_user() -> AuthUser:
+    """Override this fixture to test with a different plan/user."""
+    return TEST_USER
+
+
+@pytest.fixture()
+def app(test_user: AuthUser):
+    """Provide the FastAPI app with auth dependency overridden."""
+    from server.main import app as _app
+
+    async def _mock_verify_token():
+        return test_user
+
+    _app.dependency_overrides[_verify_token] = _mock_verify_token
+    yield _app
+    _app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def client(app):
+    """Synchronous test client with auth pre-bypassed."""
+    from fastapi.testclient import TestClient
+    return TestClient(app)
+
+
+@pytest.fixture()
+def starter_user() -> AuthUser:
+    return AuthUser(id="starter-user", email="starter@test.com", plan="starter")
+
+
+@pytest.fixture()
+def pro_user() -> AuthUser:
+    return AuthUser(id="pro-user", email="pro@test.com", plan="pro")
+
+
+@pytest.fixture()
+def agency_user() -> AuthUser:
+    return AuthUser(id="agency-user", email="agency@test.com", plan="agency")
 
 
 # ── Crawler fixtures ────────────────────────────────────────

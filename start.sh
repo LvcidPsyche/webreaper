@@ -1,26 +1,35 @@
 #!/bin/bash
-# WebReaper — local deployment script
+# WebReaper — local dev startup script
 # Usage: ./start.sh
-# Access via SSH tunnel: ssh -L 3000:localhost:3000 -L 8000:localhost:8000 user@server
+# Remote access: ssh -L 3000:localhost:3000 -L 8000:localhost:8000 user@server
 
 set -e
 cd "$(dirname "$0")"
 
 VENV=".venv"
-DB_PATH="$HOME/.webreaper/webreaper.db"
-export DATABASE_URL="sqlite+aiosqlite:///$DB_PATH"
+DB_DIR="$HOME/.webreaper"
+DB_PATH="$DB_DIR/webreaper.db"
 
-# Set this to your own secret before generating production license keys.
-# Keys generated with the dev secret are fine for testing.
-export WEBREAPER_LICENSE_SECRET="${WEBREAPER_LICENSE_SECRET:-wr-dev-secret-change-in-production}"
-# Admin mode — owner bypass, no license required
-export WEBREAPER_ADMIN=1
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
+export DATABASE_URL="${DATABASE_URL:-sqlite+aiosqlite:///$DB_PATH}"
+export APP_ENV="${APP_ENV:-development}"
+
+# Anthropic API key — required for AI digest feature
+if [ -z "$ANTHROPIC_API_KEY" ]; then
+    echo "[!] Warning: ANTHROPIC_API_KEY not set. AI digest will be disabled."
+    echo "    Set it with: export ANTHROPIC_API_KEY=sk-ant-..."
+fi
 
 echo "=== WebReaper ==="
-echo "DB:  $DB_PATH"
+echo "DB:   $DATABASE_URL"
+echo "ENV:  $APP_ENV"
 echo ""
 
-# --- Python venv ---
+# ---------------------------------------------------------------------------
+# Python venv
+# ---------------------------------------------------------------------------
 if [ ! -d "$VENV" ]; then
     echo "[*] Creating Python virtual environment..."
     python3 -m venv "$VENV"
@@ -29,14 +38,25 @@ fi
 echo "[*] Installing Python dependencies..."
 "$VENV/bin/pip" install -q -r requirements.txt
 
-# --- Playwright ---
+# Install dev deps if in development mode
+if [ "$APP_ENV" = "development" ]; then
+    if [ -f "requirements.dev.txt" ]; then
+        "$VENV/bin/pip" install -q -r requirements.dev.txt
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Playwright browsers (one-time install, ~300MB)
+# ---------------------------------------------------------------------------
 if [ ! -d "$HOME/.cache/ms-playwright" ]; then
     echo "[*] Installing Playwright browsers (one-time, ~300MB)..."
     "$VENV/bin/playwright" install chromium
 fi
 
-# --- DB init ---
-mkdir -p "$HOME/.webreaper"
+# ---------------------------------------------------------------------------
+# Database init
+# ---------------------------------------------------------------------------
+mkdir -p "$DB_DIR"
 echo "[*] Initializing database..."
 "$VENV/bin/python" -c "
 import asyncio, os
@@ -46,28 +66,31 @@ asyncio.run(DatabaseManager().create_tables())
 print('    Database ready.')
 "
 
-# --- Node deps ---
-if [ ! -d "web/node_modules" ]; then
-    echo "[*] Installing frontend dependencies..."
-    cd web && pnpm install --silent && cd ..
+# Run pending migrations
+echo "[*] Running migrations..."
+DATABASE_URL="$DATABASE_URL" "$VENV/bin/alembic" upgrade head
+
+# ---------------------------------------------------------------------------
+# Node / frontend
+# ---------------------------------------------------------------------------
+if [ -d "web" ]; then
+    if [ ! -d "web/node_modules" ]; then
+        echo "[*] Installing frontend dependencies..."
+        cd web && pnpm install --silent && cd ..
+    fi
+else
+    echo "[!] Warning: web/ directory not found. Dashboard will not start."
 fi
 
-# --- Generate a test license key (dev) ---
-echo ""
-echo "[*] Generating a development license key for you..."
-"$VENV/bin/python" -c "
-from webreaper.license import generate_key
-print('    LITE key:', generate_key('lite'))
-print('    PRO  key:', generate_key('pro'))
-"
-echo "    (These keys use the dev secret. Use 'webreaper license activate <key>' to install.)"
-
-# --- Start API server ---
+# ---------------------------------------------------------------------------
+# Start API server
+# ---------------------------------------------------------------------------
 echo ""
 echo "[*] Starting API server on http://localhost:8000..."
 DATABASE_URL="$DATABASE_URL" \
-WEBREAPER_LICENSE_SECRET="$WEBREAPER_LICENSE_SECRET" \
-"$VENV/bin/python" -m server.main &
+ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
+APP_ENV="$APP_ENV" \
+"$VENV/bin/python" webreaper.py &
 API_PID=$!
 
 # Wait for API to be ready
@@ -78,27 +101,44 @@ if ! kill -0 $API_PID 2>/dev/null; then
 fi
 echo "    API server running (PID: $API_PID)"
 
-# --- Start Next.js dashboard ---
-echo "[*] Starting dashboard on http://localhost:3000..."
-cd web && DATABASE_URL="$DATABASE_URL" pnpm dev --port 3000 &
-WEB_PID=$!
-cd ..
+# ---------------------------------------------------------------------------
+# Start Next.js dashboard (only if web/ exists)
+# ---------------------------------------------------------------------------
+WEB_PID=""
+if [ -d "web" ]; then
+    echo "[*] Starting dashboard on http://localhost:3000..."
+    cd web && NEXT_PUBLIC_API_URL="http://localhost:8000" pnpm dev --port 3000 &
+    WEB_PID=$!
+    cd ..
+fi
 
+# ---------------------------------------------------------------------------
+# Ready
+# ---------------------------------------------------------------------------
 echo ""
 echo "====================================="
 echo "  WebReaper is running!"
 echo "====================================="
 echo ""
-echo "  API server:   http://localhost:8000"
 echo "  Dashboard:    http://localhost:3000"
+echo "  API server:   http://localhost:8000"
 echo "  API docs:     http://localhost:8000/docs"
 echo ""
-echo "  SSH tunnel from your machine:"
-echo "  ssh -L 3000:localhost:3000 -L 8000:localhost:8000 user@$(hostname -I | awk '{print $1}')"
+echo "  SSH tunnel:"
+echo "  ssh -L 3000:localhost:3000 -L 8000:localhost:8000 user@$(hostname -I | awk '{print $1}' 2>/dev/null || echo 'your-server')"
+echo ""
+echo "  Copy .env.example to .env and fill in your keys to unlock all features."
 echo ""
 echo "  Press Ctrl+C to stop."
 echo ""
 
 # Graceful shutdown
-trap "echo ''; echo 'Stopping...'; kill $API_PID $WEB_PID 2>/dev/null; exit 0" INT TERM
+cleanup() {
+    echo ""
+    echo "Stopping..."
+    kill $API_PID 2>/dev/null
+    [ -n "$WEB_PID" ] && kill $WEB_PID 2>/dev/null
+    exit 0
+}
+trap cleanup INT TERM
 wait $API_PID

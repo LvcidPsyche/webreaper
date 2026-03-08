@@ -17,6 +17,7 @@ from webreaper.intruder.service import IntruderService
 from server.routes import jobs, results, security, stream, chat, agents, workstation, license, data, analysis, workspaces, proxy, repeater, intruder, governance
 from server.services.log_buffer import LogBuffer
 from server.services.metrics import MetricsService
+from webreaper.billing import router as billing_router
 
 configure_logging()
 logger = get_logger("webreaper.server")
@@ -56,7 +57,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="WebReaper API",
-    version="2.0.0",
+    version="2.2.1",
     lifespan=lifespan,
 )
 
@@ -89,11 +90,12 @@ app.include_router(proxy.router, prefix="/api/proxy", tags=["proxy"])
 app.include_router(repeater.router, prefix="/api/repeater", tags=["repeater"])
 app.include_router(intruder.router, prefix="/api/intruder", tags=["intruder"])
 app.include_router(governance.router, prefix="/api/governance", tags=["governance"])
+app.include_router(billing_router, prefix="/webhooks", tags=["billing"])
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "2.0.0"}
+    return {"status": "ok", "version": "2.2.1"}
 
 
 def start_server(host: str = "127.0.0.1", port: int = 8000):

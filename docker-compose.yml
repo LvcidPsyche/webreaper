@@ -1,0 +1,102 @@
+# ===========================================================================
+# WebReaper — Docker Compose
+# ===========================================================================
+# Start everything: docker compose up
+# Stop:             docker compose down
+# Rebuild:          docker compose up --build
+# ===========================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL database (recommended for Docker — SQLite has locking issues)
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: webreaper
+      POSTGRES_USER: webreaper
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-webreaper_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webreaper"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # FastAPI backend
+  # ---------------------------------------------------------------------------
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://webreaper:${POSTGRES_PASSWORD:-webreaper_dev}@db:5432/webreaper
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      - STRIPE_PRICE_STARTER=${STRIPE_PRICE_STARTER:-}
+      - STRIPE_PRICE_PRO=${STRIPE_PRICE_PRO:-}
+      - STRIPE_PRICE_AGENCY=${STRIPE_PRICE_AGENCY:-}
+      - CORS_ORIGINS=http://localhost:3000
+      - APP_ENV=${APP_ENV:-production}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Next.js frontend
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Redis (job queue for async scrape jobs — Phase 2)
+  # ---------------------------------------------------------------------------
+  # Uncomment when adding Celery/Redis job queue:
+  # redis:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - "6379:6379"
+  #   restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Celery worker (async scrape jobs — Phase 2)
+  # ---------------------------------------------------------------------------
+  # worker:
+  #   build: .
+  #   command: celery -A webreaper.tasks worker --loglevel=info
+  #   environment:
+  #     - DATABASE_URL=postgresql+asyncpg://webreaper:${POSTGRES_PASSWORD:-webreaper_dev}@db:5432/webreaper
+  #     - REDIS_URL=redis://redis:6379/0
+  #     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+  #   depends_on:
+  #     - db
+  #     - redis
+  #   restart: unless-stopped
+
+volumes:
+  pg_data:

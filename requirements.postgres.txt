@@ -1,0 +1,9 @@
+# ============================================================
+# WebReaper — PostgreSQL Optional Dependencies
+# ============================================================
+# Usage: pip install -r requirements.txt -r requirements.postgres.txt
+# Required when DATABASE_URL starts with postgresql+asyncpg://
+# ============================================================
+
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.0

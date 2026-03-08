@@ -1,56 +1,60 @@
-# Core
+# ============================================================
+# WebReaper — Python Dependencies (Production)
+# ============================================================
+# Install:   pip install -r requirements.txt
+# Postgres:  pip install -r requirements.txt -r requirements.postgres.txt
+# Dev/Test:  pip install -r requirements.txt -r requirements.dev.txt
+# ============================================================
+
+# --- Crawler Core ---
 aiohttp>=3.9.0
 aiofiles>=23.0.0
+httpx>=0.27.0
 beautifulsoup4>=4.12.0
 lxml>=4.9.0
 playwright>=1.40.0
-pydantic>=2.0.0
-pyyaml>=6.0.0
-click>=8.1.0
-rich>=13.0.0
-stem>=1.8.0
 tldextract>=5.0.0
 fake-useragent>=1.4.0
+pydantic>=2.0.0
+pyyaml>=6.0.0
 
-# Database — SQLite (default) or PostgreSQL (optional)
+# --- Database (SQLite default) ---
 sqlalchemy>=2.0.0
 aiosqlite>=0.19.0
 alembic>=1.13.0
 
-# PostgreSQL (optional — only needed if DATABASE_URL uses postgresql+asyncpg://)
-# asyncpg>=0.29.0
-# psycopg2-binary>=2.9.0
-
-# Tor SOCKS proxy support
-aiohttp-socks>=0.8.0
-
-# AI digest
-anthropic>=0.28.0
-
-# Engine upgrades — TLS fingerprint impersonation
-curl_cffi>=0.7.0
-
-# FastAPI server
+# --- API Server ---
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 sse-starlette>=1.6.0
 websockets>=12.0
 
-# Infrastructure X-ray
+# --- Auth (Supabase) ---
+supabase>=2.0.0
+
+# --- Billing (Stripe) ---
+stripe>=8.0.0
+
+# --- AI Digest ---
+anthropic>=0.28.0
+
+# --- Infrastructure X-Ray ---
 dnspython>=2.5.0
 python-whois>=0.9.0
 
-# Export
+# --- Export ---
 openpyxl>=3.1.0
 
-# Alerting & HTTP client
-httpx>=0.27.0
-
-# Structured logging
+# --- Logging ---
 structlog>=24.0.0
 
-# Testing
-pytest>=8.0.0
-pytest-asyncio>=0.23.0
-pytest-httpx>=0.30.0
-respx>=0.21.0
+# --- Rate limiting ---
+slowapi>=0.1.9
+
+# ============================================================
+# REMOVED (see audit — do not re-add without discussion):
+#   stem              — Tor controller.  Legal grey area for SaaS.
+#   aiohttp-socks     — Tor SOCKS proxy.  Same reason.
+#   curl_cffi         — TLS fingerprint impersonation.
+#   click / rich      — CLI tooling.  Web dashboard replaces CLI.
+# ============================================================

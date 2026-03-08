@@ -1,9 +1,11 @@
 {
-  "name": "webreaper-monorepo",
-  "version": "2.0.0",
+  "name": "webreaper",
+  "version": "2.2.1",
   "private": true,
-  "workspaces": [
-    "web",
-    "desktop"
-  ]
+  "scripts": {
+    "dev": "cd web && pnpm dev",
+    "build": "cd web && pnpm build",
+    "typecheck": "cd web && npx tsc --noEmit",
+    "test:ui": "cd web && npx vitest run"
+  }
 }
