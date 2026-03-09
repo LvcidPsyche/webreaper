@@ -14,6 +14,7 @@ from sqlalchemy import text
 import uvicorn
 
 from webreaper.database import get_db_manager
+from webreaper.job_queue import JobQueue
 from webreaper.logging_config import configure_logging, get_logger
 from webreaper.migrations import ensure_database_schema
 from webreaper.proxy.service import ProxyService
@@ -88,13 +89,17 @@ async def lifespan(app: FastAPI):
     app.state.log_buffer = log_buffer
     app.state.metrics = metrics_service
     app.state.active_jobs = {}
+    app.state.job_queue = JobQueue(max_concurrent=10)
     app.state.proxy_service = proxy_service
     app.state.repeater_service = repeater_service
     app.state.intruder_service = intruder_service
     yield
     logger.info("WebReaper API shutting down...")
+    cancelled = await app.state.job_queue.shutdown(timeout=10.0)
+    if cancelled:
+        logger.info(f"Cancelled {cancelled} in-flight job(s)")
     for job_id, job in app.state.active_jobs.items():
-        logger.info(f"Cancelling job {job_id}")
+        logger.info(f"Cancelling legacy job {job_id}")
 
 
 app = FastAPI(
@@ -115,6 +120,27 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
         status_code=429,
         content={"detail": "Rate limit exceeded. Try again later."},
     )
+
+
+# CSRF-like origin check for state-changing browser requests.
+# Bearer token auth prevents most CSRF, but this adds defense-in-depth
+# by rejecting POST/PUT/DELETE from unexpected origins.
+_CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+_CSRF_EXEMPT_PATHS = {"/webhooks/stripe", "/health"}
+
+
+@app.middleware("http")
+async def origin_check_middleware(request: Request, call_next):
+    if request.method not in _CSRF_SAFE_METHODS:
+        origin = request.headers.get("origin")
+        if origin and not any(request.url.path.startswith(p) for p in _CSRF_EXEMPT_PATHS):
+            allowed = _get_cors_origins()
+            if origin not in allowed:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Origin not allowed"},
+                )
+    return await call_next(request)
 
 
 app.add_middleware(

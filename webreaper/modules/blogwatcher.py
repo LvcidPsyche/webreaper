@@ -209,7 +209,7 @@ class BlogwatcherBridge:
             match = re.search(pattern, text, re.I)
             if match:
                 try:
-                    date_str = match.group(0)
+                    date_str = match.group(0).replace(",", "")
                     parsed = datetime.strptime(date_str, fmt)
                     return parsed.isoformat()
                 except ValueError:

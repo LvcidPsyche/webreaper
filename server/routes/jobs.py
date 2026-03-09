@@ -159,7 +159,7 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
             if metrics and hasattr(metrics, "set_counter"):
                 metrics.set_counter("active_jobs", len(request.app.state.active_jobs))
 
-    crawler._meta = {
+    job_meta = {
         "url": req.urls[0] if req.urls else "",
         "depth": req.depth,
         "concurrency": req.concurrency,
@@ -169,11 +169,17 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
         "workspace_id": req.workspace_id,
         "browser_render": req.browser_render,
     }
+    crawler._meta = job_meta
     request.app.state.active_jobs[job_id] = crawler
     metrics = getattr(request.app.state, "metrics", None)
     if metrics and hasattr(metrics, "set_counter"):
         metrics.set_counter("active_jobs", len(request.app.state.active_jobs))
-    asyncio.create_task(run_job())
+
+    job_queue = getattr(request.app.state, "job_queue", None)
+    if job_queue:
+        await job_queue.submit(lambda: run_job(), meta=job_meta, job_id=job_id)
+    else:
+        asyncio.create_task(run_job())
 
     return JobResponse(job_id=job_id, status="running", target_urls=req.urls)
 
@@ -329,3 +335,16 @@ async def stop_job(job_id: str, request: Request):
 async def cancel_job(job_id: str, request: Request):
     """Cancel a running job (POST alias for DELETE)."""
     return await stop_job(job_id, request)
+
+
+@router.get("/queue/status")
+async def queue_status(request: Request):
+    """Return job queue statistics."""
+    job_queue = getattr(request.app.state, "job_queue", None)
+    if not job_queue:
+        return {"active": len(request.app.state.active_jobs), "queued": 0}
+    return {
+        "active": job_queue.active_count,
+        "queued": job_queue.queued_count,
+        "jobs": job_queue.list_jobs(),
+    }
