@@ -7,12 +7,16 @@ from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
 from webreaper.config import Config
 from webreaper.crawler import Crawler
 from webreaper.license import get_tier, get_page_limit, is_admin
 from webreaper.usage import add_pages, can_crawl, check_page_budget, get_usage, increment_usage
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 def _make_metrics_callback(metrics, active_jobs_ref):
@@ -82,6 +86,7 @@ class ResumeJobRequest(BaseModel):
 
 
 @router.post("", response_model=JobResponse)
+@limiter.limit("10/minute")
 async def start_crawl_simple(req: SimpleJobRequest, request: Request):
     """Start a crawl from the frontend form (single URL)."""
     full = CrawlJobRequest(
@@ -93,6 +98,7 @@ async def start_crawl_simple(req: SimpleJobRequest, request: Request):
 
 
 @router.post("/start", response_model=JobResponse)
+@limiter.limit("10/minute")
 async def start_crawl(req: CrawlJobRequest, request: Request):
     """Start a new crawl job."""
     effective_max = req.max_pages

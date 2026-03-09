@@ -4,8 +4,13 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+from sqlalchemy import text
 import uvicorn
 
 from webreaper.database import get_db_manager
@@ -28,11 +33,48 @@ proxy_service = ProxyService()
 repeater_service = RepeaterService()
 intruder_service = IntruderService()
 
+# Dev-only fallback origins used when CORS_ORIGINS is unset
+_DEV_ORIGINS = [
+    "http://localhost:3000", "http://localhost:5173",
+    "http://127.0.0.1:3000", "tauri://localhost",
+]
+
+
+def _get_cors_origins() -> list[str]:
+    """Read CORS origins from CORS_ORIGINS env var (comma-separated) or fall back to dev defaults."""
+    raw = os.environ.get("CORS_ORIGINS", "").strip()
+    if raw:
+        return [o.strip() for o in raw.split(",") if o.strip()]
+    app_env = os.environ.get("APP_ENV", "production")
+    if app_env == "production":
+        logger.warning("cors.no_origins_configured", hint="Set CORS_ORIGINS env var for production")
+    return _DEV_ORIGINS
+
+
+def _validate_required_services():
+    """Warn at startup if critical external services are not configured."""
+    app_env = os.environ.get("APP_ENV", "production")
+    missing = []
+    if not os.environ.get("SUPABASE_URL"):
+        missing.append("SUPABASE_URL")
+    if not os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
+        missing.append("SUPABASE_SERVICE_ROLE_KEY")
+    if missing:
+        msg = f"Auth will fail — missing: {', '.join(missing)}"
+        if app_env == "production":
+            logger.error("startup.missing_config", vars=missing)
+            raise RuntimeError(msg)
+        logger.warning("startup.missing_config", vars=missing, hint="Auth endpoints will return 500")
+
+    if not os.environ.get("STRIPE_WEBHOOK_SECRET"):
+        logger.warning("startup.stripe_not_configured", hint="Billing webhooks will reject all events")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Server startup/shutdown lifecycle."""
     logger.info("WebReaper API starting...")
+    _validate_required_services()
     app.state.db = get_db_manager()
     if app.state.db:
         await app.state.db.init_async()
@@ -57,19 +99,27 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="WebReaper API",
-    version="2.2.1",
+    version="2.3.0",
     lifespan=lifespan,
 )
 
+# Rate limiter — default 60 requests/minute per IP.
+# Override per-route with @limiter.limit() decorator.
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Try again later."},
+    )
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000", "http://localhost:5173",
-        "http://127.0.0.1:3000", "tauri://localhost",
-        "http://localhost:8765", "http://127.0.0.1:8765",
-        "http://76.13.114.80:8765", "http://76.13.114.80",
-        "http://76.13.114.80:4001",
-    ],
+    allow_origins=_get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -95,7 +145,16 @@ app.include_router(billing_router, prefix="/webhooks", tags=["billing"])
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "2.2.1"}
+    result = {"status": "ok", "version": "2.3.0"}
+    if app.state.db:
+        try:
+            async with app.state.db.get_session() as session:
+                await session.execute(text("SELECT 1"))
+            result["db"] = "ok"
+        except Exception:
+            result["status"] = "degraded"
+            result["db"] = "unreachable"
+    return result
 
 
 def start_server(host: str = "127.0.0.1", port: int = 8000):

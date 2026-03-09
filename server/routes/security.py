@@ -6,16 +6,19 @@ import json
 from fastapi import APIRouter, Request, HTTPException, Query
 from pydantic import BaseModel, Field
 import httpx
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy import select
 
 from webreaper.database import SecurityFinding, FindingTriage
 from webreaper.governance.policy import evaluate_policy, audit_log
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 class ScanRequest(BaseModel):
-    url: str
+    url: str = Field(..., pattern=r"^https?://")
     auto_attack: bool = False
     workspace_id: str | None = None
     acknowledge_risk: bool = False
@@ -94,6 +97,7 @@ async def get_findings(
 
 
 @router.post("/scan")
+@limiter.limit("5/minute")
 async def scan_url(req: ScanRequest, request: Request):
     """Run an on-demand security scan against a URL and persist findings."""
     db = request.app.state.db

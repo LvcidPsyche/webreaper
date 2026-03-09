@@ -7,9 +7,12 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from webreaper.governance.policy import evaluate_policy, audit_log
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 class IntruderJobCreateRequest(BaseModel):
@@ -72,6 +75,7 @@ async def list_jobs(request: Request, workspace_id: str | None = None, limit: in
 
 
 @router.post('/jobs')
+@limiter.limit("5/minute")
 async def create_job(payload: IntruderJobCreateRequest, request: Request):
     db = _db(request)
     svc = _svc(request)
@@ -91,6 +95,7 @@ async def get_job(job_id: str, request: Request):
 
 
 @router.post('/jobs/{job_id}/start')
+@limiter.limit("5/minute")
 async def start_job(job_id: str, payload: IntruderJobStartRequest, request: Request):
     db = _db(request)
     svc = _svc(request)

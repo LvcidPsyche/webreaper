@@ -26,7 +26,9 @@ WEBREAPER_DIR = Path.home() / ".webreaper"
 LICENSE_FILE = WEBREAPER_DIR / "license.json"
 
 # Secret used to sign/verify keys. Must be the same value used at generation time.
-_DEV_SECRET = "wr-dev-secret-change-in-production"
+# In production, WEBREAPER_LICENSE_SECRET must be set — the dev fallback is only
+# used when APP_ENV is not "production" to allow local development.
+_DEV_SECRET = "wr-dev-secret-change-in-production"  # noqa: S105
 
 TIER_LIMITS: dict[str, Optional[int]] = {
     "LITE": 500,   # pages per month
@@ -40,7 +42,15 @@ TIER_PRICES = {
 
 
 def _secret() -> str:
-    return os.getenv("WEBREAPER_LICENSE_SECRET", _DEV_SECRET)
+    secret = os.getenv("WEBREAPER_LICENSE_SECRET")
+    if secret:
+        return secret
+    if os.getenv("APP_ENV") == "production":
+        raise RuntimeError(
+            "WEBREAPER_LICENSE_SECRET must be set in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    return _DEV_SECRET
 
 
 def _sign(tier: str, key_id: str) -> str:
