@@ -22,7 +22,6 @@ export DATABASE_URL='sqlite+aiosqlite:////tmp/webreaper_demo.db'
 
 # Demo startup (legacy screenshot mode; bypasses Alembic check on the seeded sqlite DB)
 WEBREAPER_DISABLE_MIGRATIONS=1 \
-WEBREAPER_ADMIN=1 \
 WEBREAPER_LICENSE_SECRET='wr-dev-secret' \
 DATABASE_URL='sqlite+aiosqlite:////tmp/webreaper_demo.db' \
 ./.venv/bin/python -c 'from server.main import start_server; start_server(port=8001)'
@@ -36,6 +35,7 @@ pnpm dev --port 3000
 ```
 
 > The screenshot seed data is local/demo-only and safe to regenerate.
+> License enforcement is off by default for self-hosted/local runs. Set `WEBREAPER_REQUIRE_LICENSE=1` only if you want to exercise the legacy gated mode.
 
 ## 1) Dashboard (ops cockpit)
 - Open the dashboard and verify metrics stream updates.

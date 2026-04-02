@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 
 from sqlalchemy import (
     create_engine, Column, String, Integer, Float, DateTime,
-    Boolean, Text, JSON, ForeignKey,
+    Boolean, Text, JSON, ForeignKey, UniqueConstraint,
     func, text
 )
 from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker, Session
@@ -252,6 +252,29 @@ class Workspace(Base):
     crawls = relationship("Crawl", back_populates="workspace")
     pages = relationship("Page", back_populates="workspace")
     findings = relationship("SecurityFinding", back_populates="workspace")
+    page_filings = relationship("WorkspacePageFiling", back_populates="workspace", cascade="all, delete-orphan")
+
+
+class WorkspacePageFiling(Base):
+    """Workspace-specific filing metadata for crawled pages."""
+    __tablename__ = 'workspace_page_filings'
+    __table_args__ = (
+        UniqueConstraint('workspace_id', 'page_id', name='uq_workspace_page_filing'),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    workspace_id = Column(String(36), ForeignKey('workspaces.id', ondelete='CASCADE'), nullable=False, index=True)
+    page_id = Column(String(36), ForeignKey('pages.id', ondelete='CASCADE'), nullable=False, index=True)
+    folder = Column(String(255), index=True)
+    category = Column(String(50), index=True)
+    labels = Column(JSON)
+    notes = Column(Text)
+    starred = Column(Boolean, default=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=_now, index=True)
+    updated_at = Column(DateTime(timezone=True), default=_now)
+
+    workspace = relationship("Workspace", back_populates="page_filings")
+    page = relationship("Page", backref="workspace_filing_entries")
 
 
 class Article(Base):

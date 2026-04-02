@@ -1,5 +1,6 @@
 """Tests for FastAPI routes — jobs, results endpoints."""
 
+import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
@@ -41,10 +42,11 @@ def client():
 
 def test_start_job_valid_url(client):
     with patch("server.routes.jobs.Crawler") as MockCrawler, \
-         patch("server.routes.jobs.asyncio.create_task"):
+         patch("server.routes.jobs.asyncio.create_task") as mock_create_task:
         mock_crawler_instance = MagicMock()
         mock_crawler_instance.stats = {"pages_crawled": 0}
         MockCrawler.return_value = mock_crawler_instance
+        mock_create_task.side_effect = lambda coro: coro.close()
 
         resp = client.post("/api/jobs/start", json={
             "urls": ["https://example.com"],
@@ -60,11 +62,12 @@ def test_start_job_valid_url(client):
 def test_start_job_max_pages_capped(client):
     """Requesting >50k pages is silently capped at 50k."""
     with patch("server.routes.jobs.Crawler") as MockCrawler, \
-         patch("server.routes.jobs.asyncio.create_task"), \
+         patch("server.routes.jobs.asyncio.create_task") as mock_create_task, \
          patch("server.routes.jobs.is_admin", return_value=True):
         mock_crawler_instance = MagicMock()
         mock_crawler_instance.stats = {"pages_crawled": 0}
         MockCrawler.return_value = mock_crawler_instance
+        mock_create_task.side_effect = lambda coro: coro.close()
 
         resp = client.post("/api/jobs/start", json={
             "urls": ["https://example.com"],
@@ -79,9 +82,18 @@ def test_start_job_max_pages_capped(client):
 
 def test_start_job_missing_url(client):
     resp = client.post("/api/jobs/start", json={"urls": []})
-    # Empty urls list should still get a response (validation happens inside the crawler)
-    # This tests Pydantic validation passes at least
-    assert resp.status_code in (200, 422)
+    assert resp.status_code == 422
+
+
+def test_start_job_requires_license_when_enforcement_enabled(client):
+    with patch.dict(os.environ, {"WEBREAPER_REQUIRE_LICENSE": "1"}, clear=False):
+        resp = client.post("/api/jobs/start", json={
+            "urls": ["https://example.com"],
+            "max_pages": 1,
+        })
+
+    assert resp.status_code == 402
+    assert "License limit" in resp.json()["detail"]
 
 
 # ── GET /api/jobs ────────────────────────────────────────────

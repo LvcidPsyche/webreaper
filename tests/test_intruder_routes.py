@@ -88,8 +88,8 @@ def test_intruder_create_start_results_and_stop_on_match(temp_db, monkeypatch):
         assert data['results'][0]['attempt_index'] == 1
         assert data['results'][1]['matched'] in (True, 1)
         assert data['results'][1]['transaction']['source'] == 'intruder'
-        # one delay inserted between first and second attempts
-        assert sleep_calls and abs(sleep_calls[0] - 0.2) < 1e-6
+        # Runtime internals may also issue asyncio.sleep(0); assert the throttling delay occurred.
+        assert any(abs(delay - 0.2) < 1e-6 for delay in sleep_calls)
 
 
 def test_send_to_intruder_from_transaction_and_cancel(temp_db):

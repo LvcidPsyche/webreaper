@@ -1,114 +1,137 @@
 # WebReaper
 
-WebReaper is a **workspace-first web reconnaissance platform** that combines:
-- **Screaming Frog-class crawling / technical SEO inventory**
-- **Burp-style proxy/manual tooling foundations** (Proxy, Repeater, Intruder)
-- **Security scanning + findings triage/reporting**
-- **Interactive Next.js UI + FastAPI backend**
+WebReaper is a workspace-first web crawling and content filing platform for teams that need to collect, organize, and review website data quickly.
 
-> This repo now includes browser-rendered crawling, proxy history/intercept queue, Repeater replay+Decoder, Intruder fuzzing backend/UI, governance policies/audit logs, and reporting/export workflows.
+The current product direction is centered on four things:
+- broad crawling with browser-render fallback
+- deep page extraction and structured inventory
+- workspace libraries for filing, labeling, and exporting collected pages
+- an analyst-facing UI backed by FastAPI and SQLite/Postgres-compatible models
 
----
+Proxy, repeater, and intruder tooling remain in the product and are useful for analyst workflows, but the primary story is now crawling plus structured content operations.
 
-## What’s in the platform now
+## Core Capabilities
 
-### Crawl + Analysis
-- Async crawler with deep extraction persistence
-- Browser-rendered crawl mode (Playwright foundation + fallback to HTTP)
-- Endpoint/parameter inventory (links/forms/observed requests)
-- SEO/content/technology analytics
-- Duplicate content + link health analytics
-- Manual tool seeds from endpoint inventory
+### Crawl and extract
+- Async crawl execution with resumable job tracking
+- Browser-render fallback for pages that need client-side rendering
+- Page metadata, headings, contacts, technology, and content extraction
+- Endpoint and parameter inventory derived from links, forms, and observed browser requests
+- Duplicate-content, link-health, and content-analysis views
 
-### Burp-style toolset (foundations)
-- **Proxy**: session lifecycle, HTTP history, capture endpoint, intercept queue, forward/drop/edit actions
-- **Repeater**: save/edit requests, replay, response diff summaries
-- **Decoder**: URL/Base64/HTML/hex/JWT parsing helpers + UI
-- **Intruder (MVP)**: payload markers (`§FUZZ§`), queued fuzzing runs, throttling, stop conditions, result triage
+### Workspace library
+- Workspace-scoped crawl boundaries and scope rules
+- Auto-filing suggestions for category, folder, and labels
+- Manual filing controls for starring, notes, labels, and folder/category overrides
+- Workspace-level summaries, recent pages, and filtered library views
+- JSON and CSV export of library datasets
 
-### Security + Governance
-- Passive + active scanning paths (modular scan engine wrappers)
-- Findings triage workflow + report export (JSON / Markdown)
-- Workspace risk policies (acknowledgment gates)
-- Audit logging for risky/manual actions
-- Run profiles + UI preference persistence + automation chain skeleton
+### Analyst tooling
+- Proxy session management with HTTP history and intercept queue
+- Repeater for replaying saved requests and comparing responses
+- Intruder for queued payload fuzzing with result triage
+- On-demand security findings, triage metadata, and report export
 
----
+### Platform surface
+- Next.js dashboard with static export support
+- FastAPI backend with SSE streams and WebSocket/chat plumbing
+- Alembic migrations and async SQLAlchemy data layer
+- SQLite by default, with a Postgres-compatible schema layout
 
-## Quick start (local dev)
+## Architecture
 
-### 1) Start everything
+- Backend: FastAPI, SQLAlchemy async ORM, Alembic
+- Frontend: Next.js App Router, TypeScript
+- Storage: SQLite local default, Postgres-friendly schema
+- Streaming: SSE for metrics/logs/progress, WebSocket support for chat/gateway features
+- Background execution: in-process async job queue
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.10+
+- Node.js 20+ with `npm`/`npx`
+- `pnpm` is preferred, but `start.sh` will fall back to `npx pnpm` if `pnpm` is not installed globally
+
+### Start the full local stack
+
 ```bash
 ./start.sh
 ```
 
-This boots:
-- FastAPI backend: `http://localhost:8000`
-- Next.js dashboard: `http://localhost:3000`
+This script:
+- creates a local virtual environment if needed
+- installs Python and frontend dependencies
+- initializes the SQLite database
+- runs migrations
+- starts the FastAPI backend on `http://localhost:8000`
+- starts the dashboard on `http://localhost:3000`
 
-### 2) Open the dashboard
+Useful endpoints:
 - Dashboard: `http://localhost:3000`
 - API docs: `http://localhost:8000/docs`
+- Health check: `http://localhost:8000/health`
 
----
+### Seed a deterministic demo dataset
 
-## Dev commands
+```bash
+export PYTHONPATH=.
+export DATABASE_URL='sqlite+aiosqlite:////tmp/webreaper_demo.db'
+./.venv/bin/python scripts/seed_demo_data.py
+```
+
+For a fuller walkthrough, see [docs/demo-flow.md](docs/demo-flow.md).
+
+## Development Workflow
 
 ### Backend tests
+
 ```bash
-./.venv/bin/pytest -q tests
+./.venv/bin/pytest tests
 ```
 
-### Frontend typecheck + UI utility tests
+### Frontend build and tests
+
 ```bash
 cd web
-npx tsc --noEmit
-npx vitest run
+npx pnpm build
+npx pnpm test
 ```
 
-### Regression smoke / benchmark harness
+### Production-style dashboard export
+
+The dashboard is configured with `output: 'export'`.
+
 ```bash
-./scripts/regression_smoke.sh
-./scripts/benchmark_webreaper.py --max-seconds 15
+cd web
+NEXT_PUBLIC_API_URL='http://127.0.0.1:8000' \
+NEXT_PUBLIC_WS_URL='ws://127.0.0.1:8000' \
+NEXT_PUBLIC_SSE_URL='http://127.0.0.1:8000' \
+npx pnpm build
+
+npx pnpm start
 ```
 
-See also: `docs/benchmarks.md`
+`pnpm start` serves the generated `web/out` bundle.
 
----
+## Recommended Product Demo
 
-## Demo flow (recommended)
+1. Open the dashboard and verify the live metrics stream.
+2. Start or inspect a crawl from Jobs.
+3. Review extracted content in Data.
+4. Open a workspace and review or edit library filings.
+5. Inspect captured traffic in Proxy.
+6. Replay a request in Repeater.
+7. Review a fuzzing job in Intruder.
+8. Review findings and exports in Security.
 
-A good local demo sequence:
-1. **Dashboard** → verify live metrics stream
-2. **Jobs** → start a crawl (optionally enable browser render)
-3. **Data** → inspect pages, SEO/content/tech/contact views
-4. **Proxy** → start session, inspect history, use intercept queue actions
-5. **Repeater** → send a request to repeater and compare response diffs
-6. **Intruder** → create a fuzz job with `§FUZZ§` markers and run/triage results
-7. **Security** → run on-demand scan, triage findings, export report (JSON/Markdown)
+## Configuration Notes
 
-More detail (with screenshots): **`docs/demo-flow.md`**
+- Local/self-hosted usage does not require license enforcement by default.
+- To enable the legacy gated behavior explicitly, set `WEBREAPER_REQUIRE_LICENSE=1`.
+- Missing Supabase or Stripe configuration will degrade those related features, but the local crawler/library workflow still runs in development mode.
 
-For a reproducible local UI demo dataset/screenshots, use: **`scripts/seed_demo_data.py`**
+## Safety
 
----
-
-## Architecture (high level)
-
-- **Backend**: FastAPI + SQLAlchemy (async) + Alembic migrations
-- **Frontend**: Next.js (App Router) + TypeScript
-- **Storage**: SQLite (local default), Postgres-compatible model layout
-- **Streaming**: SSE (metrics/logs/job progress) + WS chat/gateway
-- **Security tooling**: Proxy/Repeater/Intruder data persisted into shared HTTP transaction storage
-
----
-
-## Notes / current scope
-
-This is a fast-moving build. Some advanced capabilities are currently **foundational/MVP** (especially full MITM runtime integration, advanced intruder attack modes, and richer proxy live events), but the core data model, APIs, UI flows, and test harnesses are in place and expanding rapidly.
-
----
-
-## Legal / Safety
-
-Only use active scanning, fuzzing, interception, or security testing features against systems you own or are explicitly authorized to test.
+Use interception, replay, fuzzing, or active security testing features only against systems you own or are explicitly authorized to assess.

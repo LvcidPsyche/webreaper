@@ -37,10 +37,11 @@ def test_resume_crawl_creates_new_job_from_previous_crawl(temp_db):
 
     app = _make_app(temp_db)
     with TestClient(app, raise_server_exceptions=False) as client:
-        with patch('server.routes.jobs.Crawler') as MockCrawler, patch('server.routes.jobs.asyncio.create_task'):
+        with patch('server.routes.jobs.Crawler') as MockCrawler, patch('server.routes.jobs.asyncio.create_task') as mock_create_task:
             inst = MagicMock()
             inst.stats = {'pages_crawled': 0}
             MockCrawler.return_value = inst
+            mock_create_task.side_effect = lambda coro: coro.close()
             resp = client.post(f'/api/jobs/resume/{original_id}', json={'depth': 2, 'concurrency': 3})
         assert resp.status_code == 200, resp.text
         data = resp.json()

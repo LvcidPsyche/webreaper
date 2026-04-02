@@ -130,7 +130,7 @@ export interface TopologyData {
 
 export interface LicenseStatus {
   installed: boolean;
-  tier: 'FREE' | 'LITE' | 'PRO';
+  tier: 'FREE' | 'LITE' | 'PRO' | 'SELF_HOST';
   key_preview: string | null;
   installed_at: string | null;
   pages_limit: number | null;
@@ -139,4 +139,96 @@ export interface LicenseStatus {
   pct_used: number;
   month: string;
   tier_description: string;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  description: string | null;
+  scope_rules: Array<Record<string, unknown>>;
+  tags: string[];
+  risk_policy: Record<string, unknown>;
+  archived: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface WorkspaceLibraryItem {
+  page_id: string;
+  workspace_id: string;
+  crawl_id: string;
+  crawl_target_url: string;
+  crawl_status: string | null;
+  url: string;
+  domain: string;
+  path: string;
+  title: string;
+  h1: string;
+  meta_description: string;
+  status_code: number | null;
+  content_type: string;
+  content_family: string;
+  word_count: number;
+  depth: number;
+  fetch_mode: string;
+  scraped_at: string | null;
+  suggested_category: string;
+  suggested_folder: string;
+  suggested_labels: string[];
+  category: string;
+  folder: string;
+  labels: string[];
+  category_source: 'manual' | 'suggested';
+  folder_source: 'manual' | 'suggested';
+  filing_id: string | null;
+  starred: boolean;
+  notes: string | null;
+  has_manual_filing: boolean;
+}
+
+export interface WorkspaceCategoryCount {
+  category: string;
+  count: number;
+}
+
+export interface WorkspaceFolderCount {
+  folder: string;
+  count: number;
+}
+
+export interface WorkspaceDomainCount {
+  domain: string;
+  count: number;
+}
+
+export interface WorkspaceContentFamilyCount {
+  content_family: string;
+  count: number;
+}
+
+export interface WorkspaceLibrarySummary {
+  total_pages: number;
+  filed_pages: number;
+  starred_pages: number;
+  domains: number;
+  by_category: WorkspaceCategoryCount[];
+  by_folder: WorkspaceFolderCount[];
+  by_domain: WorkspaceDomainCount[];
+  by_content_family: WorkspaceContentFamilyCount[];
+  avg_word_count: number;
+}
+
+export interface WorkspaceLibrarySummaryResponse {
+  workspace: Workspace;
+  summary: WorkspaceLibrarySummary;
+  recent_items: WorkspaceLibraryItem[];
+}
+
+export interface WorkspaceLibraryListResponse {
+  workspace: Workspace;
+  summary: WorkspaceLibrarySummary;
+  total: number;
+  page: number;
+  per_page: number;
+  items: WorkspaceLibraryItem[];
 }

@@ -70,5 +70,6 @@ def _tier_label(tier: str) -> str:
         "LITE": "LITE — 500 pages/month ($19.99/month)",
         "PRO":  "PRO — Unlimited ($119.99 one-time)",
         "FREE": "No license installed",
+        "SELF_HOST": "Self-hosted mode — license enforcement disabled",
     }
     return labels.get(tier, tier)

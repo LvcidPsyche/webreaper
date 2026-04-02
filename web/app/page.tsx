@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
-import { FileText, Shield, Play, Layers, Zap, AlertTriangle, Repeat, Crosshair, Database, Network } from 'lucide-react';
+import { FileText, Shield, Play, Layers, Zap, AlertTriangle, Repeat, Crosshair, Database, Network, FolderOpen } from 'lucide-react';
 import { MetricCard } from '@/components/dashboard/metric-card';
 import { ThroughputChart } from '@/components/dashboard/throughput-chart';
 import { StatusDonut } from '@/components/dashboard/status-donut';
@@ -88,6 +88,7 @@ export default function DashboardPage() {
               {[
                 { href: '/jobs', label: 'Jobs', icon: Play },
                 { href: '/data', label: 'Data', icon: Database },
+                { href: '/workspaces', label: 'Workspaces', icon: FolderOpen },
                 { href: '/security', label: 'Findings', icon: Shield },
                 { href: '/proxy', label: 'Proxy', icon: Network },
                 { href: '/repeater', label: 'Repeater', icon: Repeat },

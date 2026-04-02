@@ -4,7 +4,7 @@ import asyncio
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from slowapi import Limiter
@@ -12,7 +12,7 @@ from slowapi.util import get_remote_address
 
 from webreaper.config import Config
 from webreaper.crawler import Crawler
-from webreaper.license import get_tier, get_page_limit, is_admin
+from webreaper.license import get_page_limit, is_admin
 from webreaper.usage import add_pages, can_crawl, check_page_budget, get_usage, increment_usage
 
 router = APIRouter()
@@ -46,7 +46,7 @@ def _make_metrics_callback(metrics, active_jobs_ref):
 
 
 class CrawlJobRequest(BaseModel):
-    urls: list[str]
+    urls: list[str] = Field(min_length=1)
     workspace_id: str | None = None
     depth: int = 3
     max_pages: int = 1000
@@ -103,7 +103,6 @@ async def start_crawl(req: CrawlJobRequest, request: Request):
     """Start a new crawl job."""
     effective_max = req.max_pages
     if not is_admin():
-        tier = get_tier()
         page_limit = get_page_limit()
         allowed, reason = can_crawl(req.max_pages, page_limit)
         if not allowed:

@@ -8,6 +8,7 @@ Key format: WR-{TIER}-{8CHAR_ID}-{8CHAR_SIG}
 Tiers:
   LITE  — 500 pages/month  ($19.99/month)
   PRO   — unlimited        ($119.99 one-time)
+  SELF_HOST — unlicensed local/self-hosted mode
 
 Admin key generation requires WEBREAPER_LICENSE_SECRET env var.
 Validation works offline — the HMAC is verified locally.
@@ -39,6 +40,12 @@ TIER_PRICES = {
     "LITE": "$19.99/month — 500 pages/month",
     "PRO":  "$119.99 one-time — unlimited",
 }
+
+
+def is_license_enforced() -> bool:
+    """Return True when license checks should actively gate API usage."""
+    raw = os.getenv("WEBREAPER_REQUIRE_LICENSE", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 def _secret() -> str:
@@ -125,16 +132,20 @@ def get_license() -> Optional[dict]:
 
 
 def get_tier() -> str:
-    """Return current tier: LITE, PRO, or FREE (no license)."""
+    """Return current tier label for the current runtime."""
     lic = get_license()
-    return lic["tier"] if lic else "FREE"
+    if lic:
+        return lic["tier"]
+    return "FREE" if is_license_enforced() else "SELF_HOST"
 
 
 def get_page_limit() -> Optional[int]:
-    """Return monthly page limit. None = unlimited. 0 = no access via API."""
+    """Return monthly page limit. None = unlimited. 0 = API access blocked."""
     tier = get_tier()
+    if tier == "SELF_HOST":
+        return None
     if tier == "FREE":
-        return 0  # FREE tier cannot use the API/dashboard; use CLI only
+        return 0
     return TIER_LIMITS.get(tier, 0)
 
 

@@ -10,6 +10,16 @@ VENV=".venv"
 DB_DIR="$HOME/.webreaper"
 DB_PATH="$DB_DIR/webreaper.db"
 
+if command -v pnpm >/dev/null 2>&1; then
+    PNPM_CMD=(pnpm)
+elif command -v npx >/dev/null 2>&1; then
+    PNPM_CMD=(npx pnpm)
+else
+    echo "[!] pnpm is required for the dashboard and npx is not available as a fallback."
+    echo "    Install pnpm or a recent Node.js distribution that provides npx."
+    exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Environment
 # ---------------------------------------------------------------------------
@@ -76,7 +86,7 @@ DATABASE_URL="$DATABASE_URL" "$VENV/bin/alembic" upgrade head
 if [ -d "web" ]; then
     if [ ! -d "web/node_modules" ]; then
         echo "[*] Installing frontend dependencies..."
-        cd web && pnpm install --silent && cd ..
+        cd web && "${PNPM_CMD[@]}" install --silent && cd ..
     fi
 else
     echo "[!] Warning: web/ directory not found. Dashboard will not start."
@@ -107,7 +117,7 @@ echo "    API server running (PID: $API_PID)"
 WEB_PID=""
 if [ -d "web" ]; then
     echo "[*] Starting dashboard on http://localhost:3000..."
-    cd web && NEXT_PUBLIC_API_URL="http://localhost:8000" pnpm dev --port 3000 &
+    cd web && NEXT_PUBLIC_API_URL="http://localhost:8000" "${PNPM_CMD[@]}" dev --port 3000 &
     WEB_PID=$!
     cd ..
 fi
