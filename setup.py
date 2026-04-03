@@ -49,7 +49,7 @@ EXTRAS_REQUIRE = {
 
 setup(
     name="webreaper",
-    version="2.3.0",
+    version="2.3.1",
     description="WebReaper — smart async web scraper with AI digest and change monitoring",
     packages=find_packages(exclude=["tests*", "docs*"]),
     install_requires=INSTALL_REQUIRES,

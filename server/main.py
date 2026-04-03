@@ -104,7 +104,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="WebReaper API",
-    version="2.3.0",
+    version="2.3.1",
     lifespan=lifespan,
 )
 
@@ -171,7 +171,7 @@ app.include_router(billing_router, prefix="/webhooks", tags=["billing"])
 
 @app.get("/health")
 async def health():
-    result = {"status": "ok", "version": "2.3.0"}
+    result = {"status": "ok", "version": "2.3.1"}
     if app.state.db:
         try:
             async with app.state.db.get_session() as session:
