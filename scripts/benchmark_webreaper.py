@@ -7,14 +7,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 import time
 from pathlib import Path
 
 
+def _build_argv(cmd: str) -> list[str]:
+    if any(token in cmd for token in ('&&', '||', '|', ';', '>', '<', '$(', '`')):
+        return ['bash', '-lc', cmd]
+    return shlex.split(cmd)
+
+
 def run_cmd(cmd: str) -> dict:
     t0 = time.perf_counter()
-    proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    proc = subprocess.run(_build_argv(cmd), capture_output=True, text=True)
     dt = time.perf_counter() - t0
     return {
         'cmd': cmd,
@@ -34,7 +41,7 @@ def main():
 
     default_cmds = [
         './.venv/bin/pytest -q tests/test_proxy_routes.py tests/test_repeater_routes.py tests/test_intruder_routes.py',
-        'cd web && npx tsc --noEmit',
+        'cd web && npx pnpm typecheck',
     ]
     cmds = args.cmds or default_cmds
 
